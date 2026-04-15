@@ -13,6 +13,9 @@ class SearchForm(StatesGroup):
     price_max = State()
     location = State()
 
+class StopForm(StatesGroup):
+    search_id = State()
+
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     await message.answer(
@@ -107,7 +110,7 @@ async def cmd_list(message: Message):
     await message.answer(text)
 
 @router.message(Command("stop"))
-async def cmd_stop(message: Message):
+async def cmd_stop(message: Message, state: FSMContext):
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch(
@@ -122,17 +125,23 @@ async def cmd_stop(message: Message):
     text = "Какой поиск остановить? Напиши ID:\n\n"
     for row in rows:
         text += f"🆔 {row['id']} — {row['keyword']}\n"
+    await state.set_state(StopForm.search_id)
     await message.answer(text)
 
-@router.message(F.text.regexp(r"^\d+$"))
-async def process_stop_id(message: Message):
-    search_id = int(message.text.strip())
+@router.message(StopForm.search_id)
+async def process_stop_id(message: Message, state: FSMContext):
+    text = message.text.strip()
+    if not text.isdigit():
+        await message.answer("Напиши только цифру — ID поиска:")
+        return
+    search_id = int(text)
     pool = await get_pool()
     async with pool.acquire() as conn:
         result = await conn.execute(
             "UPDATE searches SET active=FALSE WHERE id=$1 AND user_id=$2",
             search_id, message.from_user.id
         )
+    await state.clear()
     if result == "UPDATE 1":
         await message.answer(f"✅ Поиск {search_id} остановлен.")
     else:
