@@ -27,16 +27,19 @@ class CochesScraper(BaseScraper):
         soup = BeautifulSoup(response.text, "html.parser")
         results = []
 
-        for item in soup.select("article.mt-CardBasic"):
+        for item in soup.select("article.mt-CardAd"):
             try:
-                link_el = item.select_one("a.mt-CardBasic-titleLink")
-                title_el = item.select_one(".mt-CardBasic-title")
-                price_el = item.select_one(".mt-CardBasic-price")
-                image_el = item.select_one("img.mt-CardBasic-photo")
-                location_el = item.select_one(".mt-CardBasic-location")
+                link_el = item.select_one("a.mt-CardAd-link")
+                title_el = item.select_one(".mt-CardAd-title")
+                price_el = item.select_one(".mt-CardAd-price")
+                image_el = item.select_one("img.mt-CardAd-photo")
+                location_el = item.select_one(".mt-CardAd-location")
 
-                url = link_el["href"] if link_el else ""
-                if url and not url.startswith("http"):
+                if not link_el:
+                    continue
+
+                url = link_el.get("href", "")
+                if url.startswith("/"):
                     url = "https://www.coches.net" + url
 
                 external_id = url.split("/")[-2] if url else ""
@@ -46,7 +49,7 @@ class CochesScraper(BaseScraper):
                 image_url = image_el.get("src") or image_el.get("data-src") if image_el else None
                 location = location_el.text.strip() if location_el else ""
 
-                if not external_id or not url:
+                if not external_id:
                     continue
 
                 results.append(self.build_listing(
