@@ -15,9 +15,12 @@ scrapers = [
 ]
 
 async def run_searches(bot: Bot):
+    print("🔄 Запуск поиска...")
     pool = await get_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM searches WHERE active = TRUE")
+
+    print(f"📋 Активных поисков: {len(rows)}")
 
     for row in rows:
         search = Search(
@@ -33,7 +36,9 @@ async def run_searches(bot: Bot):
 
         for scraper in scrapers:
             try:
+                print(f"🌐 {scraper.__class__.__name__} → {search.keyword}")
                 listings = await scraper.fetch(search)
+                print(f"✅ Найдено: {len(listings)}")
                 for listing in listings:
                     pool = await get_pool()
                     async with pool.acquire() as conn:
@@ -52,7 +57,7 @@ async def run_searches(bot: Bot):
                             )
                             await notify(bot, search, listing)
             except Exception as e:
-                print(f"Ошибка парсера {scraper.__class__.__name__}: {e}")
+                print(f"❌ Ошибка {scraper.__class__.__name__}: {e}")
 
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler()
