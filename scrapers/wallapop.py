@@ -6,7 +6,7 @@ from antidetect.stealth import get_headers, random_delay
 
 class WallapopScraper(BaseScraper):
 
-    BASE_URL = "https://api.wallapop.com/api/v3/general_search"
+    BASE_URL = "https://api.wallapop.com/api/v3/search"
 
     async def fetch(self, search: Search) -> List[Listing]:
         await random_delay()
@@ -17,6 +17,7 @@ class WallapopScraper(BaseScraper):
             "order_by": "newest",
             "start": 0,
             "step": 20,
+            "language": "es_ES",
         }
 
         if search.price_min > 0:
@@ -28,31 +29,32 @@ class WallapopScraper(BaseScraper):
         headers["Accept"] = "application/json, text/plain, */*"
         headers["Origin"] = "https://es.wallapop.com"
         headers["Referer"] = "https://es.wallapop.com/"
+        headers["X-AppVersion"] = "84600"
+        headers["DeviceOS"] = "0"
 
         async with httpx.AsyncClient(headers=headers, timeout=15) as client:
             response = await client.get(self.BASE_URL, params=params)
 
         print(f"Wallapop status: {response.status_code}")
+        print(f"Wallapop response: {response.text[:300]}")
 
         if response.status_code != 200:
-            print(f"Wallapop error: {response.text[:200]}")
             return []
 
         data = response.json()
-        items = data.get("data", {}).get("section", {}).get("payload", {}).get("items", [])
-        print(f"Wallapop items raw: {len(items)}")
+        items = data.get("search_objects", [])
+        print(f"Wallapop items: {len(items)}")
         results = []
 
         for item in items:
             try:
-                content = item.get("content", {})
-                external_id = str(content.get("id", ""))
-                title = content.get("title", "")
-                price = int(float(content.get("sale_price", 0)))
-                url = f"https://es.wallapop.com/item/{content.get('web_slug', '')}"
-                images = content.get("images", [])
+                external_id = str(item.get("id", ""))
+                title = item.get("title", "")
+                price = int(float(item.get("sale_price", 0)))
+                url = f"https://es.wallapop.com/item/{item.get('web_slug', '')}"
+                images = item.get("images", [])
                 image_url = images[0].get("original") if images else None
-                location = content.get("location", {}).get("city", "")
+                location = item.get("location", {}).get("city", "")
 
                 if not external_id:
                     continue
