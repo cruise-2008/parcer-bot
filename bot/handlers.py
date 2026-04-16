@@ -20,27 +20,13 @@ class StopForm(StatesGroup):
 def platforms_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="Wallapop")],
-            [KeyboardButton(text="Milanuncios")],
-            [KeyboardButton(text="Coches.net")],
-            [KeyboardButton(text="Wallapop + Milanuncios")],
-            [KeyboardButton(text="Wallapop + Coches.net")],
-            [KeyboardButton(text="Milanuncios + Coches.net")],
-            [KeyboardButton(text="Все площадки")],
+            [KeyboardButton(text="✅ Wallapop"), KeyboardButton(text="✅ Milanuncios")],
+            [KeyboardButton(text="✅ Coches.net")],
+            [KeyboardButton(text="🚀 Готово")],
         ],
         resize_keyboard=True,
-        one_time_keyboard=True
+        one_time_keyboard=False
     )
-
-PLATFORM_MAP = {
-    "Wallapop": "wallapop",
-    "Milanuncios": "milanuncios",
-    "Coches.net": "coches",
-    "Wallapop + Milanuncios": "wallapop,milanuncios",
-    "Wallapop + Coches.net": "wallapop,coches",
-    "Milanuncios + Coches.net": "milanuncios,coches",
-    "Все площадки": "wallapop,milanuncios,coches",
-}
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -88,42 +74,70 @@ async def process_location(message: Message, state: FSMContext):
     location = message.text.strip()
     if location == "0":
         location = ""
-    await state.update_data(location=location)
+    await state.update_data(location=location, selected_platforms=[])
     await state.set_state(SearchForm.platforms)
     await message.answer(
-        "🌐 Выбери площадки для поиска:",
+        "🌐 Выбери площадки (нажимай по одной, затем нажми 🚀 Готово):\n\n"
+        "Пока не выбрано ни одной.",
         reply_markup=platforms_keyboard()
     )
+
+PLATFORM_KEYS = {
+    "✅ Wallapop": "wallapop",
+    "✅ Milanuncios": "milanuncios",
+    "✅ Coches.net": "coches",
+}
 
 @router.message(SearchForm.platforms)
 async def process_platforms(message: Message, state: FSMContext):
     text = message.text.strip()
-    platforms = PLATFORM_MAP.get(text, "wallapop,milanuncios,coches")
     data = await state.get_data()
+    selected = data.get("selected_platforms", [])
 
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        await conn.execute(
-            """INSERT INTO searches (user_id, keyword, price_min, price_max, location, platforms)
-            VALUES ($1, $2, $3, $4, $5, $6)""",
-            message.from_user.id,
-            data["keyword"],
-            data["price_min"],
-            data["price_max"],
-            data["location"],
-            platforms
+    if text == "🚀 Готово":
+        if not selected:
+            await message.answer("Выбери хотя бы одну площадку!")
+            return
+
+        platforms_str = ",".join(selected)
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO searches (user_id, keyword, price_min, price_max, location, platforms)
+                VALUES ($1, $2, $3, $4, $5, $6)""",
+                message.from_user.id,
+                data["keyword"],
+                data["price_min"],
+                data["price_max"],
+                data["location"],
+                platforms_str
+            )
+
+        await state.clear()
+        await message.answer(
+            f"✅ Поиск создан!\n\n"
+            f"🔍 {data['keyword']}\n"
+            f"💰 {data['price_min']} — {data['price_max']} €\n"
+            f"📍 {data['location'] or 'Вся Испания'}\n"
+            f"🌐 {', '.join(selected)}\n\n"
+            f"Буду присылать новые объявления каждые 10 минут.",
+            reply_markup=ReplyKeyboardRemove()
         )
+        return
 
-    await state.clear()
-    await message.answer(
-        f"✅ Поиск создан!\n\n"
-        f"🔍 {data['keyword']}\n"
-        f"💰 {data['price_min']} — {data['price_max']} €\n"
-        f"📍 {data['location'] or 'Вся Испания'}\n"
-        f"🌐 {text}\n\n"
-        f"Буду присылать новые объявления каждые 10 минут.",
-        reply_markup=ReplyKeyboardRemove()
-    )
+    platform = PLATFORM_KEYS.get(text)
+    if platform:
+        if platform not in selected:
+            selected.append(platform)
+        else:
+            selected.remove(platform)
+        await state.update_data(selected_platforms=selected)
+
+        names = [k for k, v in PLATFORM_KEYS.items() if v in selected]
+        await message.answer(
+            f"🌐 Выбрано: {', '.join(names) if names else 'ничего'}\n\nНажми 🚀 Готово когда закончишь.",
+            reply_markup=platforms_keyboard()
+        )
 
 @router.message(Command("list"))
 async def cmd_list(message: Message):
