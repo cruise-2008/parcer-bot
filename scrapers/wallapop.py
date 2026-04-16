@@ -1,32 +1,45 @@
-import httpx
+from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from typing import List
 from db.models import Listing, Search
 from scrapers.base import BaseScraper
-from antidetect.stealth import random_delay
-from config import SCRAPERAPI_KEY
+import urllib.parse
 
 class WallapopScraper(BaseScraper):
 
     BASE_URL = "https://es.wallapop.com/app/search"
 
     async def fetch(self, search: Search) -> List[Listing]:
-        await random_delay()
+        params = {
+            "keywords": search.keyword,
+            "minPrice": search.price_min,
+            "maxPrice": search.price_max,
+            "orderBy": "newest",
+        }
+        url = self.BASE_URL + "?" + urllib.parse.urlencode(params)
 
-        params = f"keywords={search.keyword}&minPrice={search.price_min}&maxPrice={search.price_max}&orderBy=newest"
-        scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={self.BASE_URL}?{params}&render=true"
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                locale="es-ES",
+            )
+            page = await context.new_page()
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(3000)
+            html = await page.content()
+            await browser.close()
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.get(scraper_url)
+        print(f"Wallapop HTML length: {len(html)}")
+        soup = BeautifulSoup(html, "html.parser")
 
-        print(f"Wallapop status: {response.status_code}")
-
-        if response.status_code != 200:
-            return []
-
-        soup = BeautifulSoup(response.text, "html.parser")
         items = soup.select("a.ItemCardList__item")
-        print(f"Wallapop items found: {len(items)}")
+        print(f"Wallapop items: {len(items)}")
+        if not items:
+            all_links = soup.select("[class*='ItemCard']")
+            print(f"Wallapop ItemCard elements: {len(all_links)}")
+            if all_links:
+                print(f"Wallapop first ItemCard class: {all_links[0].get('class')}")
 
         results = []
         for item in items:
@@ -42,7 +55,7 @@ class WallapopScraper(BaseScraper):
                 price = int(price_text) if price_text and price_text.isdigit() else None
                 image_url = image_el.get("src") if image_el else None
 
-                if not external_id or not url:
+                if not external_id:
                     continue
 
                 results.append(self.build_listing(
@@ -57,4 +70,5 @@ class WallapopScraper(BaseScraper):
             except Exception:
                 continue
 
+        print(f"Wallapop results: {len(results)}")
         return results

@@ -1,32 +1,44 @@
-import httpx
+from playwright.async_api import async_playwright
 from bs4 import BeautifulSoup
 from typing import List
 from db.models import Listing, Search
 from scrapers.base import BaseScraper
-from antidetect.stealth import random_delay
-from config import SCRAPERAPI_KEY
+import urllib.parse
 
 class CochesScraper(BaseScraper):
 
     BASE_URL = "https://www.coches.net/segunda-mano/"
 
     async def fetch(self, search: Search) -> List[Listing]:
-        await random_delay()
+        params = {
+            "txt": search.keyword,
+            "precioMaximo": search.price_max,
+            "precioMinimo": search.price_min,
+        }
+        url = self.BASE_URL + "?" + urllib.parse.urlencode(params)
 
-        params = f"txt={search.keyword}&precioMaximo={search.price_max}&precioMinimo={search.price_min}"
-        scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={self.BASE_URL}?{params}&render=true"
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            context = await browser.new_context(
+                user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                locale="es-ES",
+            )
+            page = await context.new_page()
+            await page.goto(url, wait_until="networkidle", timeout=30000)
+            await page.wait_for_timeout(3000)
+            html = await page.content()
+            await browser.close()
 
-        async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.get(scraper_url)
+        print(f"Coches HTML length: {len(html)}")
+        soup = BeautifulSoup(html, "html.parser")
 
-        print(f"Coches status: {response.status_code}")
-
-        if response.status_code != 200:
-            return []
-
-        soup = BeautifulSoup(response.text, "html.parser")
         items = soup.select("article.mt-CardAd")
-        print(f"Coches items found: {len(items)}")
+        print(f"Coches items: {len(items)}")
+        if not items:
+            all_articles = soup.find_all("article")
+            print(f"Coches all articles: {len(all_articles)}")
+            if all_articles:
+                print(f"Coches first article class: {all_articles[0].get('class')}")
 
         results = []
         for item in items:
@@ -66,4 +78,5 @@ class CochesScraper(BaseScraper):
             except Exception:
                 continue
 
+        print(f"Coches results: {len(results)}")
         return results
