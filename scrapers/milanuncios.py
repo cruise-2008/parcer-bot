@@ -37,23 +37,19 @@ class MilanunciosScraper(BaseScraper):
         items = soup.select("article.ma-AdCardV2")
         print(f"Milanuncios items: {len(items)}")
 
+        if items:
+            print(f"Milanuncios first item html: {str(items[0])[:500]}")
+
         results = []
         for item in items:
             try:
-                link_el = item.select_one("a.ma-AdCardV2-titleLink")
-                if not link_el:
-                    link_el = item.select_one("a[href*='/anuncios/']")
-                if not link_el:
-                    link_el = item.select_one("a")
-
-                title_el = item.select_one(".ma-AdCardV2-title")
+                link_el = item.select_one("a[href]")
+                title_el = item.select_one("[class*='title']")
                 if not title_el:
-                    title_el = item.select_one("[class*='title']")
-
+                    title_el = item.select_one("[class*='Title']")
                 price_el = item.select_one("[class*='price']")
                 if not price_el:
                     price_el = item.select_one("[class*='Price']")
-
                 image_el = item.select_one("img")
                 location_el = item.select_one("[class*='location']")
                 if not location_el:
@@ -64,7 +60,7 @@ class MilanunciosScraper(BaseScraper):
 
                 href = link_el.get("href", "")
                 url = "https://www.milanuncios.com" + href if href.startswith("/") else href
-                external_id = href.split("/")[-2] if "/" in href else href
+                external_id = href.strip("/").split("/")[-1]
 
                 title = title_el.text.strip() if title_el else ""
                 price_text = price_el.text.strip().replace(".", "").replace("€", "").replace(",", "").strip() if price_el else None
