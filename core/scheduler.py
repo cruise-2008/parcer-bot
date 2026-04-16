@@ -14,6 +14,15 @@ scrapers = [
     CochesScraper(),
 ]
 
+def price_matches(listing, search):
+    if listing.price is None:
+        return True
+    if search.price_min > 0 and listing.price < search.price_min:
+        return False
+    if search.price_max < 999999 and listing.price > search.price_max:
+        return False
+    return True
+
 async def run_searches(bot: Bot):
     print("🔄 Запуск поиска...")
     pool = await get_pool()
@@ -38,8 +47,12 @@ async def run_searches(bot: Bot):
             try:
                 print(f"🌐 {scraper.__class__.__name__} → {search.keyword}")
                 listings = await scraper.fetch(search)
-                print(f"✅ Найдено: {len(listings)}")
-                for listing in listings:
+                print(f"✅ Найдено до фильтра: {len(listings)}")
+
+                filtered = [l for l in listings if price_matches(l, search)]
+                print(f"✅ После фильтра цены: {len(filtered)}")
+
+                for listing in filtered:
                     pool = await get_pool()
                     async with pool.acquire() as conn:
                         exists = await conn.fetchval(
