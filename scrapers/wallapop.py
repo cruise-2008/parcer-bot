@@ -31,26 +31,27 @@ class WallapopScraper(BaseScraper):
             await browser.close()
 
         soup = BeautifulSoup(html, "html.parser")
-        items = soup.select("[class*='ItemCardGrid']")
+        grid = soup.select_one("[class*='ItemCardGrid']")
+        items = grid.select("a[href*='/item/']") if grid else []
         print(f"Wallapop items: {len(items)}")
-        if items:
-            print(f"Wallapop first item: {items[0].get('class')}")
-            print(f"Wallapop first item html: {str(items[0])[:300]}")
 
         results = []
         for item in items:
             try:
-                link_el = item.select_one("a")
+                href = item.get("href", "")
+                url = "https://es.wallapop.com" + href if href.startswith("/") else href
+                external_id = href.split("/")[-1]
+
                 title_el = item.select_one("[class*='title']")
+                if not title_el:
+                    title_el = item.select_one("[class*='Title']")
+
                 price_el = item.select_one("[class*='price']")
+                if not price_el:
+                    price_el = item.select_one("[class*='Price']")
+
                 image_el = item.select_one("img")
 
-                if not link_el:
-                    continue
-
-                href = link_el.get("href", "")
-                url = "https://es.wallapop.com" + href if href.startswith("/") else href
-                external_id = url.split("/")[-1]
                 title = title_el.text.strip() if title_el else ""
                 price_text = price_el.text.strip().replace("€", "").replace(".", "").replace(",", "").strip() if price_el else None
                 price = int(price_text) if price_text and price_text.isdigit() else None

@@ -32,20 +32,10 @@ class CochesScraper(BaseScraper):
         soup = BeautifulSoup(html, "html.parser")
         print(f"Coches HTML length: {len(html)}")
 
-        all_articles = soup.find_all("article")
-        print(f"Coches all articles: {len(all_articles)}")
-        if all_articles:
-            for a in all_articles[:3]:
-                print(f"Coches article class: {a.get('class')}")
-
-        all_cards = soup.select("[class*='Card']")
-        print(f"Coches Card elements: {len(all_cards)}")
-        if all_cards:
-            print(f"Coches first Card class: {all_cards[0].get('class')}")
-
-        all_items = soup.select("[class*='item']")
-        print(f"Coches item elements: {len(all_items)}")
-        if all_items:
-            print(f"Coches first item class: {all_items[0].get('class')}")
+        items = soup.select("[class*='mt-Card']")
+        print(f"Coches mt-Card elements: {len(items)}")
+        if items:
+            print(f"Coches first mt-Card: {items[0].get('class')}")
+            print(f"Coches first mt-Card html: {str(items[0])[:400]}")
 
         return []
