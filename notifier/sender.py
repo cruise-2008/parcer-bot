@@ -15,6 +15,8 @@ async def notify(bot: Bot, search: Search, listing: Listing):
         f"🔗 <a href='{listing.url}'>Открыть объявление</a>"
     )
 
+    print(f"📨 Отправка уведомления: {listing.title} → user {search.user_id}")
+
     try:
         if listing.image_url:
             try:
@@ -24,9 +26,10 @@ async def notify(bot: Bot, search: Search, listing: Listing):
                     caption=text,
                     parse_mode="HTML"
                 )
+                print(f"✅ Отправлено с фото")
                 return
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"⚠️ Фото не отправилось: {e}, пробуем без фото")
 
         await bot.send_message(
             chat_id=search.user_id,
@@ -34,5 +37,6 @@ async def notify(bot: Bot, search: Search, listing: Listing):
             parse_mode="HTML",
             disable_web_page_preview=False
         )
+        print(f"✅ Отправлено без фото")
     except Exception as e:
-        print(f"Ошибка отправки уведомления: {e}")
+        print(f"❌ Ошибка отправки: {e}")
