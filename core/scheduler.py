@@ -8,11 +8,11 @@ from scrapers.coches import CochesScraper
 from notifier.sender import notify
 from config import SEARCH_INTERVAL_MINUTES
 
-scrapers = [
-    MilanunciosScraper(),
-    WallapopScraper(),
-    CochesScraper(),
-]
+SCRAPERS = {
+    "wallapop": WallapopScraper(),
+    "milanuncios": MilanunciosScraper(),
+    "coches": CochesScraper(),
+}
 
 def price_matches(listing, search):
     if listing.price is None:
@@ -43,14 +43,17 @@ async def run_searches(bot: Bot):
             active=row["active"]
         )
 
-        for scraper in scrapers:
-            try:
-                print(f"🌐 {scraper.__class__.__name__} → {search.keyword}")
-                listings = await scraper.fetch(search)
-                print(f"✅ Найдено до фильтра: {len(listings)}")
+        platforms = row["platforms"].split(",") if row["platforms"] else ["wallapop", "milanuncios", "coches"]
 
+        for platform in platforms:
+            scraper = SCRAPERS.get(platform.strip())
+            if not scraper:
+                continue
+            try:
+                print(f"🌐 {platform} → {search.keyword}")
+                listings = await scraper.fetch(search)
                 filtered = [l for l in listings if price_matches(l, search)]
-                print(f"✅ После фильтра цены: {len(filtered)}")
+                print(f"✅ Найдено: {len(filtered)}")
 
                 for listing in filtered:
                     pool = await get_pool()
@@ -70,7 +73,7 @@ async def run_searches(bot: Bot):
                             )
                             await notify(bot, search, listing)
             except Exception as e:
-                print(f"❌ Ошибка {scraper.__class__.__name__}: {e}")
+                print(f"❌ Ошибка {platform}: {e}")
 
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler()
