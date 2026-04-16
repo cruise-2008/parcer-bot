@@ -20,16 +20,25 @@ class MilanunciosScraper(BaseScraper):
             params["where"] = search.location
             params["radio"] = search.radius
 
-        async with httpx.AsyncClient(headers=get_headers(), timeout=15) as client:
+        async with httpx.AsyncClient(headers=get_headers(), timeout=15, follow_redirects=True) as client:
             response = await client.get(self.BASE_URL, params=params)
 
+        print(f"Milanuncios status: {response.status_code}")
+        print(f"Milanuncios url: {response.url}")
+
         if response.status_code != 200:
+            print(f"Milanuncios error: {response.text[:200]}")
             return []
 
         soup = BeautifulSoup(response.text, "html.parser")
-        results = []
+        articles = soup.select("article.ma-AdCard")
+        print(f"Milanuncios articles found: {len(articles)}")
 
-        for item in soup.select("article.ma-AdCard"):
+        if len(articles) == 0:
+            print(f"Milanuncios HTML snippet: {response.text[2000:2500]}")
+
+        results = []
+        for item in articles:
             try:
                 external_id = item.get("data-adid", "")
                 title_el = item.select_one(".ma-AdCard-title")
