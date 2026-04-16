@@ -26,36 +26,37 @@ class WallapopScraper(BaseScraper):
             )
             page = await context.new_page()
             await page.goto(url, wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(4000)
             html = await page.content()
             await browser.close()
 
-        print(f"Wallapop HTML length: {len(html)}")
         soup = BeautifulSoup(html, "html.parser")
-
-        items = soup.select("a.ItemCardList__item")
+        items = soup.select("[class*='ItemCardGrid']")
         print(f"Wallapop items: {len(items)}")
-        if not items:
-            all_links = soup.select("[class*='ItemCard']")
-            print(f"Wallapop ItemCard elements: {len(all_links)}")
-            if all_links:
-                print(f"Wallapop first ItemCard class: {all_links[0].get('class')}")
+        if items:
+            print(f"Wallapop first item: {items[0].get('class')}")
+            print(f"Wallapop first item html: {str(items[0])[:300]}")
 
         results = []
         for item in items:
             try:
-                url = "https://es.wallapop.com" + item.get("href", "")
-                external_id = url.split("/")[-1]
-                title_el = item.select_one(".ItemCard__title")
-                price_el = item.select_one(".ItemCard__price")
+                link_el = item.select_one("a")
+                title_el = item.select_one("[class*='title']")
+                price_el = item.select_one("[class*='price']")
                 image_el = item.select_one("img")
 
+                if not link_el:
+                    continue
+
+                href = link_el.get("href", "")
+                url = "https://es.wallapop.com" + href if href.startswith("/") else href
+                external_id = url.split("/")[-1]
                 title = title_el.text.strip() if title_el else ""
-                price_text = price_el.text.strip().replace("€", "").replace(".", "").strip() if price_el else None
+                price_text = price_el.text.strip().replace("€", "").replace(".", "").replace(",", "").strip() if price_el else None
                 price = int(price_text) if price_text and price_text.isdigit() else None
                 image_url = image_el.get("src") if image_el else None
 
-                if not external_id:
+                if not external_id or not title:
                     continue
 
                 results.append(self.build_listing(
@@ -67,7 +68,8 @@ class WallapopScraper(BaseScraper):
                     image_url=image_url,
                     location=""
                 ))
-            except Exception:
+            except Exception as e:
+                print(f"Wallapop item error: {e}")
                 continue
 
         print(f"Wallapop results: {len(results)}")
