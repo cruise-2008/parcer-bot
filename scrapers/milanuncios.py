@@ -29,52 +29,28 @@ class MilanunciosScraper(BaseScraper):
             )
             page = await context.new_page()
             await page.goto(url, wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(3000)
+            await page.wait_for_timeout(4000)
             html = await page.content()
             await browser.close()
 
-        print(f"Milanuncios HTML length: {len(html)}")
         soup = BeautifulSoup(html, "html.parser")
+        print(f"Milanuncios HTML length: {len(html)}")
 
         all_articles = soup.find_all("article")
-        print(f"Milanuncios articles: {len(all_articles)}")
+        print(f"Milanuncios all articles: {len(all_articles)}")
         if all_articles:
-            print(f"Milanuncios first article class: {all_articles[0].get('class')}")
+            for a in all_articles[:3]:
+                print(f"Milanuncios article class: {a.get('class')}")
 
-        adcards = soup.select("[class*='AdCard']")
-        print(f"Milanuncios AdCard elements: {len(adcards)}")
+        all_cards = soup.select("[class*='Ad']")
+        print(f"Milanuncios Ad elements: {len(all_cards)}")
+        if all_cards:
+            print(f"Milanuncios first Ad class: {all_cards[0].get('class')}")
 
-        results = []
-        for item in soup.select("article.ma-AdCard"):
-            try:
-                external_id = item.get("data-adid", "")
-                title_el = item.select_one(".ma-AdCard-title")
-                price_el = item.select_one(".ma-AdPrice-value")
-                link_el = item.select_one("a.ma-AdCard-titleLink")
-                image_el = item.select_one("img.ma-AdCard-photo")
-                location_el = item.select_one(".ma-AdCard-location")
+        all_li = soup.find_all("li")
+        print(f"Milanuncios li elements: {len(all_li)}")
+        if all_li:
+            for li in all_li[:3]:
+                print(f"Milanuncios li class: {li.get('class')}")
 
-                title = title_el.text.strip() if title_el else ""
-                price_text = price_el.text.strip().replace(".", "").replace("€", "").strip() if price_el else None
-                price = int(price_text) if price_text and price_text.isdigit() else None
-                url = "https://www.milanuncios.com" + link_el["href"] if link_el else ""
-                image_url = image_el.get("src") or image_el.get("data-src") if image_el else None
-                location = location_el.text.strip() if location_el else ""
-
-                if not external_id or not url:
-                    continue
-
-                results.append(self.build_listing(
-                    external_id=external_id,
-                    platform="milanuncios",
-                    title=title,
-                    price=price,
-                    url=url,
-                    image_url=image_url,
-                    location=location
-                ))
-            except Exception:
-                continue
-
-        print(f"Milanuncios results: {len(results)}")
-        return results
+        return []
