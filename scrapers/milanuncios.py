@@ -3,7 +3,8 @@ from bs4 import BeautifulSoup
 from typing import List
 from db.models import Listing, Search
 from scrapers.base import BaseScraper
-from antidetect.stealth import get_headers, random_delay
+from antidetect.stealth import random_delay
+from config import SCRAPERAPI_KEY
 
 class MilanunciosScraper(BaseScraper):
 
@@ -11,20 +12,18 @@ class MilanunciosScraper(BaseScraper):
 
     async def fetch(self, search: Search) -> List[Listing]:
         await random_delay()
-        params = {
-            "titulo": search.keyword,
-            "preciomax": search.price_max,
-            "preciomin": search.price_min,
-        }
-        if search.location:
-            params["where"] = search.location
-            params["radio"] = search.radius
 
-        async with httpx.AsyncClient(headers=get_headers(), timeout=15, follow_redirects=True) as client:
-            response = await client.get(self.BASE_URL, params=params)
+        target_url = self.BASE_URL
+        params = f"titulo={search.keyword}&preciomax={search.price_max}&preciomin={search.price_min}"
+        if search.location:
+            params += f"&where={search.location}&radio={search.radius}"
+
+        scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={target_url}?{params}&render=true"
+
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.get(scraper_url)
 
         print(f"Milanuncios status: {response.status_code}")
-        print(f"Milanuncios url: {response.url}")
 
         if response.status_code != 200:
             print(f"Milanuncios error: {response.text[:200]}")
@@ -33,9 +32,6 @@ class MilanunciosScraper(BaseScraper):
         soup = BeautifulSoup(response.text, "html.parser")
         articles = soup.select("article.ma-AdCard")
         print(f"Milanuncios articles found: {len(articles)}")
-
-        if len(articles) == 0:
-            print(f"Milanuncios HTML snippet: {response.text[2000:2500]}")
 
         results = []
         for item in articles:

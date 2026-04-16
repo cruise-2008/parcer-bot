@@ -3,7 +3,8 @@ from bs4 import BeautifulSoup
 from typing import List
 from db.models import Listing, Search
 from scrapers.base import BaseScraper
-from antidetect.stealth import get_headers, random_delay
+from antidetect.stealth import random_delay
+from config import SCRAPERAPI_KEY
 
 class CochesScraper(BaseScraper):
 
@@ -12,22 +13,23 @@ class CochesScraper(BaseScraper):
     async def fetch(self, search: Search) -> List[Listing]:
         await random_delay()
 
-        params = {
-            "txt": search.keyword,
-            "precioMaximo": search.price_max,
-            "precioMinimo": search.price_min,
-        }
+        params = f"txt={search.keyword}&precioMaximo={search.price_max}&precioMinimo={search.price_min}"
+        scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={self.BASE_URL}?{params}&render=true"
 
-        async with httpx.AsyncClient(headers=get_headers(), timeout=15) as client:
-            response = await client.get(self.BASE_URL, params=params)
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.get(scraper_url)
+
+        print(f"Coches status: {response.status_code}")
 
         if response.status_code != 200:
             return []
 
         soup = BeautifulSoup(response.text, "html.parser")
-        results = []
+        items = soup.select("article.mt-CardAd")
+        print(f"Coches items found: {len(items)}")
 
-        for item in soup.select("article.mt-CardAd"):
+        results = []
+        for item in items:
             try:
                 link_el = item.select_one("a.mt-CardAd-link")
                 title_el = item.select_one(".mt-CardAd-title")

@@ -1,62 +1,48 @@
 import httpx
+from bs4 import BeautifulSoup
 from typing import List
 from db.models import Listing, Search
 from scrapers.base import BaseScraper
-from antidetect.stealth import get_headers, random_delay
+from antidetect.stealth import random_delay
+from config import SCRAPERAPI_KEY
 
 class WallapopScraper(BaseScraper):
 
-    BASE_URL = "https://api.wallapop.com/api/v3/search"
+    BASE_URL = "https://es.wallapop.com/app/search"
 
     async def fetch(self, search: Search) -> List[Listing]:
         await random_delay()
 
-        params = {
-            "keywords": search.keyword,
-            "filters_source": "search_box",
-            "order_by": "newest",
-            "start": 0,
-            "step": 20,
-            "language": "es_ES",
-        }
+        params = f"keywords={search.keyword}&minPrice={search.price_min}&maxPrice={search.price_max}&orderBy=newest"
+        scraper_url = f"http://api.scraperapi.com?api_key={SCRAPERAPI_KEY}&url={self.BASE_URL}?{params}&render=true"
 
-        if search.price_min > 0:
-            params["min_sale_price"] = search.price_min
-        if search.price_max < 999999:
-            params["max_sale_price"] = search.price_max
-
-        headers = get_headers()
-        headers["Accept"] = "application/json, text/plain, */*"
-        headers["Origin"] = "https://es.wallapop.com"
-        headers["Referer"] = "https://es.wallapop.com/"
-        headers["X-AppVersion"] = "84600"
-        headers["DeviceOS"] = "0"
-
-        async with httpx.AsyncClient(headers=headers, timeout=15) as client:
-            response = await client.get(self.BASE_URL, params=params)
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.get(scraper_url)
 
         print(f"Wallapop status: {response.status_code}")
-        print(f"Wallapop response: {response.text[:300]}")
 
         if response.status_code != 200:
             return []
 
-        data = response.json()
-        items = data.get("search_objects", [])
-        print(f"Wallapop items: {len(items)}")
-        results = []
+        soup = BeautifulSoup(response.text, "html.parser")
+        items = soup.select("a.ItemCardList__item")
+        print(f"Wallapop items found: {len(items)}")
 
+        results = []
         for item in items:
             try:
-                external_id = str(item.get("id", ""))
-                title = item.get("title", "")
-                price = int(float(item.get("sale_price", 0)))
-                url = f"https://es.wallapop.com/item/{item.get('web_slug', '')}"
-                images = item.get("images", [])
-                image_url = images[0].get("original") if images else None
-                location = item.get("location", {}).get("city", "")
+                url = "https://es.wallapop.com" + item.get("href", "")
+                external_id = url.split("/")[-1]
+                title_el = item.select_one(".ItemCard__title")
+                price_el = item.select_one(".ItemCard__price")
+                image_el = item.select_one("img")
 
-                if not external_id:
+                title = title_el.text.strip() if title_el else ""
+                price_text = price_el.text.strip().replace("€", "").replace(".", "").strip() if price_el else None
+                price = int(price_text) if price_text and price_text.isdigit() else None
+                image_url = image_el.get("src") if image_el else None
+
+                if not external_id or not url:
                     continue
 
                 results.append(self.build_listing(
@@ -66,10 +52,9 @@ class WallapopScraper(BaseScraper):
                     price=price,
                     url=url,
                     image_url=image_url,
-                    location=location
+                    location=""
                 ))
-            except Exception as e:
-                print(f"Wallapop item error: {e}")
+            except Exception:
                 continue
 
         return results
