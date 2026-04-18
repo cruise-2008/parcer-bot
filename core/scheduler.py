@@ -23,6 +23,11 @@ def price_matches(listing, search):
         return False
     return True
 
+def keyword_matches(listing, search):
+    keywords = search.keyword.lower().split()
+    title = listing.title.lower()
+    return any(kw in title for kw in keywords)
+
 async def run_searches(bot: Bot):
     print("🔄 Запуск поиска...")
     pool = await get_pool()
@@ -52,7 +57,7 @@ async def run_searches(bot: Bot):
             try:
                 print(f"🌐 {platform} → {search.keyword}")
                 listings = await scraper.fetch(search)
-                filtered = [l for l in listings if price_matches(l, search)]
+                filtered = [l for l in listings if price_matches(l, search) and keyword_matches(l, search)]
                 print(f"✅ Найдено: {len(filtered)}")
 
                 for listing in filtered:
