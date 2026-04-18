@@ -28,12 +28,19 @@ def platforms_keyboard():
         one_time_keyboard=False
     )
 
+PLATFORM_KEYS = {
+    "✅ Wallapop": "wallapop",
+    "✅ Milanuncios": "milanuncios",
+    "✅ Coches.net": "coches",
+}
+
 @router.message(Command("start"))
 async def cmd_start(message: Message):
     await message.answer(
         "👋 Привет! Я ищу объявления на Milanuncios, Wallapop и Coches.net\n\n"
         "📌 Команды:\n"
-        "/search — создать новый поиск\n"
+        "/search — поиск товаров\n"
+        "/car — поиск автомобилей\n"
         "/list — мои активные поиски\n"
         "/stop — остановить поиск"
     )
@@ -77,16 +84,9 @@ async def process_location(message: Message, state: FSMContext):
     await state.update_data(location=location, selected_platforms=[])
     await state.set_state(SearchForm.platforms)
     await message.answer(
-        "🌐 Выбери площадки (нажимай по одной, затем нажми 🚀 Готово):\n\n"
-        "Пока не выбрано ни одной.",
+        "🌐 Выбери площадки (нажимай по одной, затем нажми 🚀 Готово):\n\nПока не выбрано ни одной.",
         reply_markup=platforms_keyboard()
     )
-
-PLATFORM_KEYS = {
-    "✅ Wallapop": "wallapop",
-    "✅ Milanuncios": "milanuncios",
-    "✅ Coches.net": "coches",
-}
 
 @router.message(SearchForm.platforms)
 async def process_platforms(message: Message, state: FSMContext):
@@ -114,12 +114,13 @@ async def process_platforms(message: Message, state: FSMContext):
             )
 
         await state.clear()
+        names = [k for k, v in PLATFORM_KEYS.items() if v in selected]
         await message.answer(
             f"✅ Поиск создан!\n\n"
             f"🔍 {data['keyword']}\n"
             f"💰 {data['price_min']} — {data['price_max']} €\n"
             f"📍 {data['location'] or 'Вся Испания'}\n"
-            f"🌐 {', '.join(selected)}\n\n"
+            f"🌐 {', '.join(names)}\n\n"
             f"Буду присылать новые объявления каждые 10 минут.",
             reply_markup=ReplyKeyboardRemove()
         )
@@ -132,7 +133,6 @@ async def process_platforms(message: Message, state: FSMContext):
         else:
             selected.remove(platform)
         await state.update_data(selected_platforms=selected)
-
         names = [k for k, v in PLATFORM_KEYS.items() if v in selected]
         await message.answer(
             f"🌐 Выбрано: {', '.join(names) if names else 'ничего'}\n\nНажми 🚀 Готово когда закончишь.",
