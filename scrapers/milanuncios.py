@@ -37,38 +37,51 @@ class MilanunciosScraper(BaseScraper):
         items = soup.select("article.ma-AdCardV2")
         print(f"Milanuncios items: {len(items)}")
 
-        if items:
-            print(f"Milanuncios first item html: {str(items[0])[:500]}")
-
         results = []
         for item in items:
             try:
-                link_el = item.select_one("a[href]")
-                title_el = item.select_one("[class*='title']")
+                link_el = item.select_one("a.ma-AdCardV2-link")
+                href = link_el.get("href", "") if link_el else ""
+
+                if not href:
+                    data_href = item.get("data-href", "")
+                    if data_href:
+                        href = data_href
+
+                if not href:
+                    links = item.select("a[href]")
+                    for l in links:
+                        h = l.get("href", "")
+                        if h and (".htm" in h or "/anuncios/" in h):
+                            href = h
+                            break
+
+                title_el = item.select_one("[class*='AdCardV2-title']")
                 if not title_el:
-                    title_el = item.select_one("[class*='Title']")
-                price_el = item.select_one("[class*='price']")
+                    title_el = item.select_one("h2")
+                if not title_el:
+                    title_el = item.select_one("[class*='title']")
+
+                price_el = item.select_one("[class*='Price']")
                 if not price_el:
-                    price_el = item.select_one("[class*='Price']")
+                    price_el = item.select_one("[class*='price']")
+
                 image_el = item.select_one("img")
                 location_el = item.select_one("[class*='location']")
                 if not location_el:
                     location_el = item.select_one("[class*='Location']")
 
-                if not link_el:
-                    continue
-
-                href = link_el.get("href", "")
-                url = "https://www.milanuncios.com" + href if href.startswith("/") else href
-                external_id = href.strip("/").split("/")[-1]
-
                 title = title_el.text.strip() if title_el else ""
                 price_text = price_el.text.strip().replace(".", "").replace("€", "").replace(",", "").strip() if price_el else None
                 price = int(price_text) if price_text and price_text.isdigit() else None
+                url = "https://www.milanuncios.com" + href if href.startswith("/") else href
+                external_id = href.strip("/").split("/")[-1].replace(".htm", "") if href else ""
                 image_url = image_el.get("src") or image_el.get("data-src") if image_el else None
                 location = location_el.text.strip() if location_el else ""
 
-                if not external_id or not url:
+                print(f"Milanuncios item: title={title} href={href} price={price}")
+
+                if not title or not external_id:
                     continue
 
                 results.append(self.build_listing(
