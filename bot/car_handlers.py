@@ -67,7 +67,7 @@ PLATFORM_MAP = {
 @router.message(Command("car"))
 async def cmd_car(message: Message, state: FSMContext):
     await state.set_state(CarForm.brand)
-    await message.answer("🚗 Введи марку автомобиля:")
+    await message.answer("🚗 Какую марку автомобиля ищешь?\n\nПример: Toyota, BMW, Ford")
 
 @router.message(CarForm.brand)
 async def process_brand(message: Message, state: FSMContext):
@@ -79,7 +79,8 @@ async def process_brand(message: Message, state: FSMContext):
         await state.set_state(CarForm.model)
         await message.answer(
             f"✅ Марка: <b>{brand}</b>\n\n"
-            f"📝 Введи модель (или напиши 0 чтобы пропустить):",
+            f"📝 Какую модель ищешь?\n"
+            f"Если модель не важна — напиши <b>0</b>",
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
         )
@@ -92,7 +93,9 @@ async def process_brand(message: Message, state: FSMContext):
             reply_markup=confirm_keyboard()
         )
     else:
-        await message.answer("Марка не найдена. Попробуй ещё раз (например: Toyota, BMW, Ford):")
+        await message.answer(
+            "Марка не найдена 🤔\n\nПопробуй ещё раз, например:\nToyota, BMW, Mercedes-Benz, Kia"
+        )
 
 @router.message(CarForm.brand_confirm)
 async def process_brand_confirm(message: Message, state: FSMContext):
@@ -103,39 +106,52 @@ async def process_brand_confirm(message: Message, state: FSMContext):
         await state.set_state(CarForm.model)
         await message.answer(
             f"✅ Марка: <b>{data['suggested_brand']}</b>\n\n"
-            f"📝 Введи модель (или напиши 0 чтобы пропустить):",
+            f"📝 Какую модель ищешь?\n"
+            f"Если модель не важна — напиши <b>0</b>",
             parse_mode="HTML",
             reply_markup=ReplyKeyboardRemove()
         )
     else:
         await state.set_state(CarForm.brand)
-        await message.answer("Введи марку заново:", reply_markup=ReplyKeyboardRemove())
+        await message.answer(
+            "Введи марку заново, например: Toyota, BMW, Ford",
+            reply_markup=ReplyKeyboardRemove()
+        )
 
 @router.message(CarForm.model)
 async def process_model(message: Message, state: FSMContext):
     model = message.text.strip()
     if model == "0":
         model = ""
+        await message.answer("Любая модель — понял ✅")
+    else:
+        await message.answer(f"Модель: <b>{model}</b> ✅", parse_mode="HTML")
     await state.update_data(model=model)
     await state.set_state(CarForm.fuel)
-    await message.answer("⛽ Тип топлива:", reply_markup=fuel_keyboard())
+    await message.answer("⛽ Выбери тип топлива:", reply_markup=fuel_keyboard())
 
 @router.message(CarForm.fuel)
 async def process_fuel(message: Message, state: FSMContext):
     fuel = FUEL_MAP.get(message.text.strip(), "")
     await state.update_data(fuel=fuel)
     await state.set_state(CarForm.year_from)
-    await message.answer("📅 Год от? (например 2010):", reply_markup=ReplyKeyboardRemove())
+    await message.answer(
+        "📅 С какого года искать?\n\nПример: 2010",
+        reply_markup=ReplyKeyboardRemove()
+    )
 
 @router.message(CarForm.year_from)
 async def process_year_from(message: Message, state: FSMContext):
     text = message.text.strip()
     if not text.isdigit() or int(text) < 1990 or int(text) > 2025:
-        await message.answer("Введи корректный год (например 2010):")
+        await message.answer("Введи корректный год, например: 2010")
         return
     await state.update_data(year_from=int(text))
     await state.set_state(CarForm.year_to)
-    await message.answer("📅 Год до? (напиши 0 без ограничений):")
+    await message.answer(
+        "📅 По какой год искать?\n\nЕсли без ограничения — напиши <b>0</b>",
+        parse_mode="HTML"
+    )
 
 @router.message(CarForm.year_to)
 async def process_year_to(message: Message, state: FSMContext):
@@ -148,23 +164,23 @@ async def process_year_to(message: Message, state: FSMContext):
     else:
         await state.update_data(year_to=int(text))
     await state.set_state(CarForm.price_min)
-    await message.answer("💰 Минимальная цена (€):")
+    await message.answer("💰 Минимальная цена (€)?\n\nПример: 2000")
 
 @router.message(CarForm.price_min)
 async def process_price_min(message: Message, state: FSMContext):
     text = message.text.strip()
     if not text.isdigit():
-        await message.answer("Введи число:")
+        await message.answer("Введи число, например: 2000")
         return
     await state.update_data(price_min=int(text))
     await state.set_state(CarForm.price_max)
-    await message.answer("💰 Максимальная цена (€):")
+    await message.answer("💰 Максимальная цена (€)?\n\nПример: 10000")
 
 @router.message(CarForm.price_max)
 async def process_price_max(message: Message, state: FSMContext):
     text = message.text.strip()
     if not text.isdigit():
-        await message.answer("Введи число:")
+        await message.answer("Введи число, например: 10000")
         return
     await state.update_data(price_max=int(text))
     await state.set_state(CarForm.platforms)
@@ -197,12 +213,16 @@ async def process_platforms(message: Message, state: FSMContext):
         )
 
     await state.clear()
+    fuel_text = message.text if data.get("fuel") else "Любой тип"
+    model_text = data.get("model") or "Любая"
+
     await message.answer(
         f"✅ Поиск авто создан!\n\n"
-        f"🚗 {data['brand']} {data.get('model', '')}\n"
-        f"⛽ {message.text if data.get('fuel') else 'Любой тип'}\n"
-        f"📅 {data['year_from']} — {data.get('year_to', 2025)}\n"
-        f"💰 {data['price_min']} — {data['price_max']} €\n"
+        f"🚗 Марка: {data['brand']}\n"
+        f"📋 Модель: {model_text}\n"
+        f"⛽ Топливо: {fuel_text}\n"
+        f"📅 Год: {data['year_from']} — {data.get('year_to', 2025)}\n"
+        f"💰 Цена: {data['price_min']} — {data['price_max']} €\n"
         f"🌐 {text}\n\n"
         f"Буду присылать новые объявления каждые 10 минут.",
         reply_markup=ReplyKeyboardRemove()
