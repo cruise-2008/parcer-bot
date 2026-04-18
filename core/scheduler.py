@@ -14,6 +14,8 @@ SCRAPERS = {
     "coches": CochesScraper(),
 }
 
+TRUSTED_SCRAPERS = {"wallapop"}
+
 def price_matches(listing, search):
     if listing.price is None:
         return True
@@ -57,8 +59,14 @@ async def run_searches(bot: Bot):
             try:
                 print(f"🌐 {platform} → {search.keyword}")
                 listings = await scraper.fetch(search)
-                filtered = [l for l in listings if price_matches(l, search) and keyword_matches(l, search)]
-                print(f"✅ Найдено: {len(filtered)}")
+                print(f"📦 Получено: {len(listings)}")
+
+                if platform in TRUSTED_SCRAPERS:
+                    filtered = [l for l in listings if price_matches(l, search)]
+                else:
+                    filtered = [l for l in listings if price_matches(l, search) and keyword_matches(l, search)]
+
+                print(f"✅ После фильтра: {len(filtered)}")
 
                 for listing in filtered:
                     pool = await get_pool()
