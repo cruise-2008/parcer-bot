@@ -6,6 +6,7 @@ from scrapers.base import BaseScraper
 from bot.car_makes import COCHES_MAKES, COCHES_FUEL
 import urllib.parse
 import unicodedata
+import re
 
 def normalize(text):
     return unicodedata.normalize('NFD', text.lower()).encode('ascii', 'ignore').decode('ascii')
@@ -73,12 +74,7 @@ class CochesScraper(BaseScraper):
                 if not title_el:
                     title_el = item.select_one("h2")
 
-                price_el = item.select_one(".mt-CardAd-price")
-                if not price_el:
-                    price_el = item.select_one("[class*='price']")
-                if not price_el:
-                    price_el = item.select_one("[class*='Price']")
-
+                price_el = item.select_one("h5.mt-TitleBasic-title")
                 image_el = item.select_one("img")
                 location_el = item.select_one(".mt-CardAd-location")
                 if not location_el:
@@ -92,17 +88,14 @@ class CochesScraper(BaseScraper):
                 external_id = href.strip("/").split("/")[-1].replace(".aspx", "")
                 title = title_el.text.strip() if title_el else ""
 
-                price_text = ""
+                price = None
                 if price_el:
                     price_text = price_el.text.strip()
-                    for ch in [".", "€", ",", " ", "\xa0"]:
-                        price_text = price_text.replace(ch, "")
-                price = int(price_text) if price_text and price_text.isdigit() else None
+                    digits = re.sub(r'[^\d]', '', price_text)
+                    price = int(digits) if digits else None
 
                 image_url = image_el.get("src") or image_el.get("data-src") if image_el else None
                 location = location_el.text.strip() if location_el else ""
-
-                print(f"Coches item: {title} | {price} | {item_url[:50]}")
 
                 if not external_id or not title:
                     continue
