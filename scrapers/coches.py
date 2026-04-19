@@ -50,13 +50,25 @@ class CochesScraper(BaseScraper):
             )
             page = await context.new_page()
             await page.goto(url, wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(4000)
+
+            try:
+                await page.wait_for_selector("div.mt-CardAd", timeout=10000)
+            except Exception:
+                print("Coches: карточки не появились — ждём дольше")
+                await page.wait_for_timeout(5000)
+
             html = await page.content()
             await browser.close()
 
         soup = BeautifulSoup(html, "html.parser")
         items = soup.select("div.mt-CardAd")
         print(f"Coches items: {len(items)}")
+
+        if not items:
+            all_divs = soup.select("[class*='Card']")
+            print(f"Coches Card divs: {len(all_divs)}")
+            if all_divs:
+                print(f"Coches first Card class: {all_divs[0].get('class')}")
 
         results = []
         for item in items:
