@@ -80,8 +80,14 @@ MILANUNCIOS_MAKES = {
 
 COCHES_FUEL = {
     "hibrido": 4,
+    "híbrido": 4,
+    "hybrid": 4,
     "electrico": 5,
+    "eléctrico": 5,
+    "electric": 5,
     "gasolina": 1,
+    "gasoline": 1,
     "diesel": 2,
+    "diésel": 2,
     "": None,
 }

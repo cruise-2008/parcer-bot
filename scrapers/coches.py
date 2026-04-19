@@ -5,6 +5,10 @@ from db.models import Listing, Search
 from scrapers.base import BaseScraper
 from bot.car_makes import COCHES_MAKES, COCHES_FUEL
 import urllib.parse
+import unicodedata
+
+def normalize(text):
+    return unicodedata.normalize('NFD', text.lower()).encode('ascii', 'ignore').decode('ascii')
 
 class CochesScraper(BaseScraper):
 
@@ -12,18 +16,18 @@ class CochesScraper(BaseScraper):
 
     async def fetch(self, search: Search) -> List[Listing]:
         params = {}
-
-        keywords = search.keyword.lower().split()
+        keywords = search.keyword.split()
         make_id = None
         fuel_id = None
 
         for kw in keywords:
+            kw_norm = normalize(kw)
             for make_name, make_code in COCHES_MAKES.items():
-                if kw in make_name.lower() or make_name.lower() in kw:
+                if kw_norm in normalize(make_name) or normalize(make_name) in kw_norm:
                     make_id = make_code
                     break
             for fuel_name, fuel_code in COCHES_FUEL.items():
-                if fuel_name and kw in fuel_name.lower():
+                if fuel_name and kw_norm in normalize(fuel_name):
                     fuel_id = fuel_code
                     break
 
@@ -50,13 +54,10 @@ class CochesScraper(BaseScraper):
             )
             page = await context.new_page()
             await page.goto(url, wait_until="networkidle", timeout=30000)
-
             try:
                 await page.wait_for_selector("div.mt-CardAd", timeout=10000)
             except Exception:
-                print("Coches: карточки не появились — ждём дольше")
                 await page.wait_for_timeout(5000)
-
             html = await page.content()
             await browser.close()
 
@@ -64,24 +65,22 @@ class CochesScraper(BaseScraper):
         items = soup.select("div.mt-CardAd")
         print(f"Coches items: {len(items)}")
 
-        if not items:
-            all_divs = soup.select("[class*='Card']")
-            print(f"Coches Card divs: {len(all_divs)}")
-            if all_divs:
-                print(f"Coches first Card class: {all_divs[0].get('class')}")
-
         results = []
         for item in items:
             try:
                 link_el = item.select_one("a[href]")
-                title_el = item.select_one("h2")
+                title_el = item.select_one("h2.mt-CardAd-infoHeaderTitle")
                 if not title_el:
-                    title_el = item.select_one("[class*='Title']")
-                price_el = item.select_one("[class*='Price']")
+                    title_el = item.select_one("h2")
+
+                price_el = item.select_one(".mt-CardAd-price")
                 if not price_el:
                     price_el = item.select_one("[class*='price']")
+                if not price_el:
+                    price_el = item.select_one("[class*='Price']")
+
                 image_el = item.select_one("img")
-                location_el = item.select_one("[class*='Location']")
+                location_el = item.select_one(".mt-CardAd-location")
                 if not location_el:
                     location_el = item.select_one("[class*='location']")
 
@@ -89,13 +88,21 @@ class CochesScraper(BaseScraper):
                     continue
 
                 href = link_el.get("href", "")
-                url = "https://www.coches.net" + href if href.startswith("/") else href
-                external_id = href.strip("/").split("/")[-1]
+                item_url = "https://www.coches.net" + href if href.startswith("/") else href
+                external_id = href.strip("/").split("/")[-1].replace(".aspx", "")
                 title = title_el.text.strip() if title_el else ""
-                price_text = price_el.text.strip().replace(".", "").replace("€", "").replace(",", "").strip() if price_el else None
+
+                price_text = ""
+                if price_el:
+                    price_text = price_el.text.strip()
+                    for ch in [".", "€", ",", " ", "\xa0"]:
+                        price_text = price_text.replace(ch, "")
                 price = int(price_text) if price_text and price_text.isdigit() else None
+
                 image_url = image_el.get("src") or image_el.get("data-src") if image_el else None
                 location = location_el.text.strip() if location_el else ""
+
+                print(f"Coches item: {title} | {price} | {item_url[:50]}")
 
                 if not external_id or not title:
                     continue
@@ -105,7 +112,7 @@ class CochesScraper(BaseScraper):
                     platform="coches",
                     title=title,
                     price=price,
-                    url=url,
+                    url=item_url,
                     image_url=image_url,
                     location=location
                 ))
