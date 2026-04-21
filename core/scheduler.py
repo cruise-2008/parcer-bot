@@ -1,3 +1,4 @@
+import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 from db.database import get_pool
@@ -30,6 +31,41 @@ def keyword_matches(listing, search):
     title = listing.title.lower()
     return any(kw in title for kw in keywords)
 
+async def process_scraper(bot, search, platform, scraper):
+    try:
+        print(f"🌐 {platform} → {search.keyword}")
+        listings = await asyncio.wait_for(scraper.fetch(search), timeout=60)
+        print(f"📦 Получено: {len(listings)}")
+
+        if platform in TRUSTED_SCRAPERS:
+            filtered = [l for l in listings if price_matches(l, search)]
+        else:
+            filtered = [l for l in listings if price_matches(l, search) and keyword_matches(l, search)]
+
+        print(f"✅ После фильтра: {len(filtered)}")
+
+        for listing in filtered:
+            pool = await get_pool()
+            async with pool.acquire() as conn:
+                exists = await conn.fetchval(
+                    "SELECT id FROM listings WHERE external_id=$1 AND platform=$2",
+                    listing.external_id, listing.platform
+                )
+                if not exists:
+                    await conn.execute(
+                        """INSERT INTO listings
+                        (search_id, external_id, platform, title, price, url, image_url, location)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)""",
+                        search.id, listing.external_id, listing.platform,
+                        listing.title, listing.price, listing.url,
+                        listing.image_url, listing.location
+                    )
+                    await notify(bot, search, listing)
+    except asyncio.TimeoutError:
+        print(f"⏱ Timeout: {platform} → {search.keyword}")
+    except Exception as e:
+        print(f"❌ Ошибка {platform}: {e}")
+
 async def run_searches(bot: Bot):
     print("🔄 Запуск поиска...")
     pool = await get_pool()
@@ -56,37 +92,9 @@ async def run_searches(bot: Bot):
             scraper = SCRAPERS.get(platform.strip())
             if not scraper:
                 continue
-            try:
-                print(f"🌐 {platform} → {search.keyword}")
-                listings = await scraper.fetch(search)
-                print(f"📦 Получено: {len(listings)}")
+            await process_scraper(bot, search, platform, scraper)
 
-                if platform in TRUSTED_SCRAPERS:
-                    filtered = [l for l in listings if price_matches(l, search)]
-                else:
-                    filtered = [l for l in listings if price_matches(l, search) and keyword_matches(l, search)]
-
-                print(f"✅ После фильтра: {len(filtered)}")
-
-                for listing in filtered:
-                    pool = await get_pool()
-                    async with pool.acquire() as conn:
-                        exists = await conn.fetchval(
-                            "SELECT id FROM listings WHERE external_id=$1 AND platform=$2",
-                            listing.external_id, listing.platform
-                        )
-                        if not exists:
-                            await conn.execute(
-                                """INSERT INTO listings
-                                (search_id, external_id, platform, title, price, url, image_url, location)
-                                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)""",
-                                search.id, listing.external_id, listing.platform,
-                                listing.title, listing.price, listing.url,
-                                listing.image_url, listing.location
-                            )
-                            await notify(bot, search, listing)
-            except Exception as e:
-                print(f"❌ Ошибка {platform}: {e}")
+    print("✅ Цикл поиска завершён")
 
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler()
@@ -94,7 +102,9 @@ def start_scheduler(bot: Bot):
         run_searches,
         "interval",
         minutes=SEARCH_INTERVAL_MINUTES,
-        args=[bot]
+        args=[bot],
+        max_instances=1,
+        coalesce=True
     )
     scheduler.start()
     return scheduler
