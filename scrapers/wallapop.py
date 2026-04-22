@@ -4,20 +4,57 @@ from typing import List
 from db.models import Listing, Search
 from scrapers.base import BaseScraper
 import urllib.parse
+import json
 
 class WallapopScraper(BaseScraper):
 
-    BASE_URL = "https://es.wallapop.com/app/search"
+    SEARCH_URL = "https://es.wallapop.com/app/search"
+    CAR_URL = "https://es.wallapop.com/search"
 
     async def fetch(self, search: Search) -> List[Listing]:
+        meta = None
+        try:
+            meta = json.loads(search.keyword)
+        except Exception:
+            pass
+
+        if meta and meta.get("type") == "car":
+            return await self._fetch_cars(search, meta)
+        else:
+            return await self._fetch_items(search)
+
+    async def _fetch_cars(self, search: Search, meta: dict) -> List[Listing]:
+        params = {
+            "category_id": 100,
+            "order_by": "newest",
+            "min_sale_price": search.price_min,
+            "max_sale_price": search.price_max,
+            "min_year": meta.get("year_from", 2000),
+        }
+        if meta.get("brand"):
+            params["brand"] = meta["brand"]
+        if meta.get("model"):
+            params["model"] = meta["model"]
+        if meta.get("fuel_wallapop"):
+            params["engine"] = meta["fuel_wallapop"]
+        if meta.get("max_km", 999999) < 999999:
+            params["max_km"] = meta["max_km"]
+
+        url = self.CAR_URL + "?" + urllib.parse.urlencode(params)
+        print(f"Wallapop car URL: {url}")
+        return await self._scrape(url)
+
+    async def _fetch_items(self, search: Search) -> List[Listing]:
         params = {
             "keywords": search.keyword,
             "minPrice": search.price_min,
             "maxPrice": search.price_max,
             "orderBy": "newest",
         }
-        url = self.BASE_URL + "?" + urllib.parse.urlencode(params)
+        url = self.SEARCH_URL + "?" + urllib.parse.urlencode(params)
+        return await self._scrape(url)
 
+    async def _scrape(self, url: str) -> List[Listing]:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(
@@ -41,17 +78,11 @@ class WallapopScraper(BaseScraper):
                 if not href or "/item/" not in href:
                     continue
 
-                url = "https://es.wallapop.com" + href if href.startswith("/") else href
+                item_url = "https://es.wallapop.com" + href if href.startswith("/") else href
                 external_id = href.split("/item/")[-1].split("?")[0]
 
-                title_el = item.select_one("[class*='title']")
-                if not title_el:
-                    title_el = item.select_one("[class*='Title']")
-
-                price_el = item.select_one("[class*='price']")
-                if not price_el:
-                    price_el = item.select_one("[class*='Price']")
-
+                title_el = item.select_one("[class*='title']") or item.select_one("[class*='Title']")
+                price_el = item.select_one("[class*='price']") or item.select_one("[class*='Price']")
                 image_el = item.select_one("img")
 
                 title = title_el.text.strip() if title_el else ""
@@ -70,7 +101,7 @@ class WallapopScraper(BaseScraper):
                     platform="wallapop",
                     title=title,
                     price=price,
-                    url=url,
+                    url=item_url,
                     image_url=image_url,
                     location=""
                 ))

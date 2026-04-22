@@ -7,6 +7,7 @@ from bot.car_makes import COCHES_MAKES, COCHES_FUEL
 import urllib.parse
 import unicodedata
 import re
+import json
 
 def normalize(text):
     return unicodedata.normalize('NFD', text.lower()).encode('ascii', 'ignore').decode('ascii')
@@ -16,29 +17,62 @@ class CochesScraper(BaseScraper):
     BASE_URL = "https://www.coches.net/segunda-mano/"
 
     async def fetch(self, search: Search) -> List[Listing]:
+        meta = None
+        try:
+            meta = json.loads(search.keyword)
+        except Exception:
+            pass
+
         params = {}
-        keywords = search.keyword.split()
-        make_id = None
-        fuel_id = None
 
-        for kw in keywords:
-            kw_norm = normalize(kw)
-            for make_name, make_code in COCHES_MAKES.items():
-                if kw_norm in normalize(make_name) or normalize(make_name) in kw_norm:
-                    make_id = make_code
-                    break
-            for fuel_name, fuel_code in COCHES_FUEL.items():
-                if fuel_name and kw_norm in normalize(fuel_name):
-                    fuel_id = fuel_code
-                    break
+        if meta and meta.get("type") == "car":
+            brand_name = meta.get("brand", "")
+            fuel_coches = meta.get("fuel_coches", "")
+            year_from = meta.get("year_from", 0)
 
-        if not make_id:
-            print(f"Coches: марка не найдена для '{search.keyword}' — пропускаем")
-            return []
+            make_id = COCHES_MAKES.get(brand_name)
+            if not make_id:
+                for name, code in COCHES_MAKES.items():
+                    if normalize(brand_name) in normalize(name):
+                        make_id = code
+                        break
 
-        params["MakeIds[0]"] = make_id
-        if fuel_id:
-            params["Fueltype2List"] = fuel_id
+            if not make_id:
+                print(f"Coches: марка не найдена для '{brand_name}'")
+                return []
+
+            params["MakeIds[0]"] = make_id
+            if fuel_coches:
+                fuel_id = COCHES_FUEL.get(fuel_coches)
+                if fuel_id:
+                    params["Fueltype2List"] = fuel_id
+            if year_from:
+                params["MinYear"] = year_from
+
+        else:
+            keywords = search.keyword.split()
+            make_id = None
+            fuel_id = None
+
+            for kw in keywords:
+                kw_norm = normalize(kw)
+                for make_name, make_code in COCHES_MAKES.items():
+                    if kw_norm in normalize(make_name) or normalize(make_name) in kw_norm:
+                        make_id = make_code
+                        break
+                for fuel_name, fuel_code in COCHES_FUEL.items():
+                    if fuel_name and kw_norm in normalize(fuel_name):
+                        fuel_id = fuel_code
+                        break
+
+            if not make_id:
+                print(f"Coches: марка не найдена для '{search.keyword}' — пропускаем")
+                return []
+
+            params["MakeIds[0]"] = make_id
+            if fuel_id:
+                params["Fueltype2List"] = fuel_id
+
         if search.price_min > 0:
             params["MinPrice"] = search.price_min
         if search.price_max < 999999:
@@ -70,15 +104,10 @@ class CochesScraper(BaseScraper):
         for item in items:
             try:
                 link_el = item.select_one("a[href]")
-                title_el = item.select_one("h2.mt-CardAd-infoHeaderTitle")
-                if not title_el:
-                    title_el = item.select_one("h2")
-
+                title_el = item.select_one("h2.mt-CardAd-infoHeaderTitle") or item.select_one("h2")
                 price_el = item.select_one("h5.mt-TitleBasic-title")
                 image_el = item.select_one("img")
-                location_el = item.select_one(".mt-CardAd-location")
-                if not location_el:
-                    location_el = item.select_one("[class*='location']")
+                location_el = item.select_one(".mt-CardAd-location") or item.select_one("[class*='location']")
 
                 if not link_el:
                     continue
@@ -90,8 +119,7 @@ class CochesScraper(BaseScraper):
 
                 price = None
                 if price_el:
-                    price_text = price_el.text.strip()
-                    digits = re.sub(r'[^\d]', '', price_text)
+                    digits = re.sub(r'[^\d]', '', price_el.text.strip())
                     price = int(digits) if digits else None
 
                 image_url = image_el.get("src") or image_el.get("data-src") if image_el else None

@@ -14,7 +14,7 @@ class CarForm(StatesGroup):
     model = State()
     fuel = State()
     year_from = State()
-    year_to = State()
+    max_km = State()
     price_min = State()
     price_max = State()
     platforms = State()
@@ -51,11 +51,11 @@ def platforms_keyboard():
     )
 
 FUEL_MAP = {
-    "🔋 Гибрид": "hibrido",
-    "⚡ Электро": "electrico",
-    "⛽ Бензин": "gasolina",
-    "🛢 Дизель": "diesel",
-    "🔀 Любой тип": "",
+    "🔋 Гибрид": {"wallapop": "hybride", "coches": "hibrido"},
+    "⚡ Электро": {"wallapop": "electric", "coches": "electrico"},
+    "⛽ Бензин": {"wallapop": "gasoline", "coches": "gasolina"},
+    "🛢 Дизель": {"wallapop": "diesel", "coches": "diesel"},
+    "🔀 Любой тип": {"wallapop": "", "coches": ""},
 }
 
 PLATFORM_MAP = {
@@ -132,8 +132,8 @@ async def process_model(message: Message, state: FSMContext):
 
 @router.message(CarForm.fuel)
 async def process_fuel(message: Message, state: FSMContext):
-    fuel = FUEL_MAP.get(message.text.strip(), "")
-    await state.update_data(fuel=fuel)
+    fuel = FUEL_MAP.get(message.text.strip(), {"wallapop": "", "coches": ""})
+    await state.update_data(fuel=fuel, fuel_label=message.text.strip())
     await state.set_state(CarForm.year_from)
     await message.answer(
         "📅 С какого года искать?\n\nПример: 2010",
@@ -147,22 +147,22 @@ async def process_year_from(message: Message, state: FSMContext):
         await message.answer("Введи корректный год, например: 2010")
         return
     await state.update_data(year_from=int(text))
-    await state.set_state(CarForm.year_to)
+    await state.set_state(CarForm.max_km)
     await message.answer(
-        "📅 По какой год искать?\n\nЕсли без ограничения — напиши <b>0</b>",
+        "🛣 Максимальный пробег (км)?\n\nПример: 150000\nЕсли без ограничения — напиши <b>0</b>",
         parse_mode="HTML"
     )
 
-@router.message(CarForm.year_to)
-async def process_year_to(message: Message, state: FSMContext):
+@router.message(CarForm.max_km)
+async def process_max_km(message: Message, state: FSMContext):
     text = message.text.strip()
     if text == "0":
-        await state.update_data(year_to=2025)
+        await state.update_data(max_km=999999)
     elif not text.isdigit():
-        await message.answer("Введи корректный год или 0:")
+        await message.answer("Введи число, например: 150000")
         return
     else:
-        await state.update_data(year_to=int(text))
+        await state.update_data(max_km=int(text))
     await state.set_state(CarForm.price_min)
     await message.answer("💰 Минимальная цена (€)?\n\nПример: 2000")
 
@@ -192,11 +192,23 @@ async def process_platforms(message: Message, state: FSMContext):
     platforms = PLATFORM_MAP.get(text, "coches,wallapop")
     data = await state.get_data()
 
-    keyword = data["brand"]
+    fuel = data.get("fuel", {"wallapop": "", "coches": ""})
+    keyword = f"{data['brand']}"
     if data.get("model"):
-        keyword += " " + data["model"]
-    if data.get("fuel"):
-        keyword += " " + data["fuel"]
+        keyword += f" {data['model']}"
+    if fuel.get("coches"):
+        keyword += f" {fuel['coches']}"
+
+    import json
+    meta = json.dumps({
+        "type": "car",
+        "brand": data["brand"],
+        "model": data.get("model", ""),
+        "fuel_wallapop": fuel.get("wallapop", ""),
+        "fuel_coches": fuel.get("coches", ""),
+        "year_from": data.get("year_from", 2000),
+        "max_km": data.get("max_km", 999999),
+    })
 
     pool = await get_pool()
     async with pool.acquire() as conn:
@@ -205,7 +217,7 @@ async def process_platforms(message: Message, state: FSMContext):
             (user_id, keyword, price_min, price_max, location, platforms)
             VALUES ($1, $2, $3, $4, $5, $6)""",
             message.from_user.id,
-            keyword,
+            meta,
             data["price_min"],
             data["price_max"],
             "",
@@ -213,15 +225,18 @@ async def process_platforms(message: Message, state: FSMContext):
         )
 
     await state.clear()
-    fuel_text = message.text if data.get("fuel") else "Любой тип"
     model_text = data.get("model") or "Любая"
+    fuel_label = data.get("fuel_label", "Любой тип")
+    max_km = data.get("max_km", 999999)
+    km_text = f"{max_km:,} км" if max_km < 999999 else "Без ограничения"
 
     await message.answer(
         f"✅ Поиск авто создан!\n\n"
         f"🚗 Марка: {data['brand']}\n"
         f"📋 Модель: {model_text}\n"
-        f"⛽ Топливо: {fuel_text}\n"
-        f"📅 Год: {data['year_from']} — {data.get('year_to', 2025)}\n"
+        f"⛽ Топливо: {fuel_label}\n"
+        f"📅 Год от: {data.get('year_from')}\n"
+        f"🛣 Пробег до: {km_text}\n"
         f"💰 Цена: {data['price_min']} — {data['price_max']} €\n"
         f"🌐 {text}\n\n"
         f"Буду присылать новые объявления каждые 10 минут.",

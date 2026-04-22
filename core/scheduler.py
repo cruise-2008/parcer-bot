@@ -1,4 +1,5 @@
 import asyncio
+import json
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from aiogram import Bot
 from db.database import get_pool
@@ -31,13 +32,22 @@ def keyword_matches(listing, search):
     title = listing.title.lower()
     return any(kw in title for kw in keywords)
 
+def is_car_search(search):
+    try:
+        meta = json.loads(search.keyword)
+        return meta.get("type") == "car"
+    except Exception:
+        return False
+
 async def process_scraper(bot, search, platform, scraper):
     try:
-        print(f"🌐 {platform} → {search.keyword}")
+        print(f"🌐 {platform} → {search.keyword[:50]}")
         listings = await asyncio.wait_for(scraper.fetch(search), timeout=60)
         print(f"📦 Получено: {len(listings)}")
 
-        if platform in TRUSTED_SCRAPERS:
+        car_search = is_car_search(search)
+
+        if car_search or platform in TRUSTED_SCRAPERS:
             filtered = [l for l in listings if price_matches(l, search)]
         else:
             filtered = [l for l in listings if price_matches(l, search) and keyword_matches(l, search)]
@@ -62,7 +72,7 @@ async def process_scraper(bot, search, platform, scraper):
                     )
                     await notify(bot, search, listing)
     except asyncio.TimeoutError:
-        print(f"⏱ Timeout: {platform} → {search.keyword}")
+        print(f"⏱ Timeout: {platform} → {search.keyword[:30]}")
     except Exception as e:
         print(f"❌ Ошибка {platform}: {e}")
 

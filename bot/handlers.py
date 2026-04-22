@@ -1,3 +1,4 @@
+import json
 from aiogram import Router, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.filters import Command
@@ -33,6 +34,28 @@ PLATFORM_KEYS = {
     "✅ Milanuncios": "milanuncios",
     "✅ Coches.net": "coches",
 }
+
+def format_search(row):
+    try:
+        meta = json.loads(row["keyword"])
+        if meta.get("type") == "car":
+            model = meta.get("model") or "любая модель"
+            fuel = meta.get("fuel_label", "")
+            return (
+                f"🚗 {meta['brand']} {model}\n"
+                f"⛽ {fuel}\n"
+                f"📅 от {meta.get('year_from', '—')} г.\n"
+                f"💰 {row['price_min']} — {row['price_max']} €\n"
+                f"🌐 {row['platforms']}"
+            )
+    except Exception:
+        pass
+    return (
+        f"🔍 {row['keyword']}\n"
+        f"💰 {row['price_min']} — {row['price_max']} €\n"
+        f"📍 {row['location'] or 'Вся Испания'}\n"
+        f"🌐 {row['platforms']}"
+    )
 
 @router.message(Command("start"))
 async def cmd_start(message: Message):
@@ -154,13 +177,9 @@ async def cmd_list(message: Message):
 
     text = "📋 Твои активные поиски:\n\n"
     for row in rows:
-        text += (
-            f"🆔 ID: {row['id']}\n"
-            f"🔍 {row['keyword']}\n"
-            f"💰 {row['price_min']} — {row['price_max']} €\n"
-            f"📍 {row['location'] or 'Вся Испания'}\n"
-            f"🌐 {row['platforms']}\n\n"
-        )
+        text += f"🆔 ID: {row['id']}\n"
+        text += format_search(row)
+        text += "\n\n"
     text += "Чтобы остановить поиск: /stop"
     await message.answer(text)
 
@@ -179,7 +198,12 @@ async def cmd_stop(message: Message, state: FSMContext):
 
     text = "Какой поиск остановить? Напиши ID:\n\n"
     for row in rows:
-        text += f"🆔 {row['id']} — {row['keyword']}\n"
+        try:
+            meta = json.loads(row["keyword"])
+            label = f"🚗 {meta.get('brand', '')} {meta.get('model', '')}"
+        except Exception:
+            label = row["keyword"]
+        text += f"🆔 {row['id']} — {label}\n"
     await state.set_state(StopForm.search_id)
     await message.answer(text)
 
