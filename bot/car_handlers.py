@@ -20,6 +20,13 @@ class CarForm(StatesGroup):
     price_max = State()
     platforms = State()
 
+def brand_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="🔀 Любая марка")]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
 def fuel_keyboard():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -70,13 +77,24 @@ async def cmd_car(message: Message, state: FSMContext):
     await state.clear()
     await state.set_state(CarForm.brand)
     await message.answer(
-        "🚗 Какую марку автомобиля ищешь?\n\nПример: Toyota, BMW, Ford",
-        reply_markup=ReplyKeyboardRemove()
+        "🚗 Какую марку автомобиля ищешь?\n\nПример: Toyota, BMW, Ford\nИли нажми кнопку если марка не важна:",
+        reply_markup=brand_keyboard()
     )
 
 @router.message(CarForm.brand)
 async def process_brand(message: Message, state: FSMContext):
     text = message.text.strip()
+
+    if text == "🔀 Любая марка":
+        await state.update_data(brand="")
+        await state.set_state(CarForm.model)
+        await message.answer(
+            "✅ Любая марка\n\n📝 Модель? Напиши или <b>0</b> чтобы пропустить:",
+            parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove()
+        )
+        return
+
     brand, score = find_brand(text)
 
     if score == 1.0:
@@ -99,7 +117,8 @@ async def process_brand(message: Message, state: FSMContext):
         )
     else:
         await message.answer(
-            "Марка не найдена 🤔\n\nПопробуй ещё раз, например:\nToyota, BMW, Mercedes-Benz, Kia"
+            "Марка не найдена 🤔\n\nПопробуй ещё раз или нажми кнопку:",
+            reply_markup=brand_keyboard()
         )
 
 @router.message(CarForm.brand_confirm)
@@ -119,8 +138,8 @@ async def process_brand_confirm(message: Message, state: FSMContext):
     else:
         await state.set_state(CarForm.brand)
         await message.answer(
-            "Введи марку заново, например: Toyota, BMW, Ford",
-            reply_markup=ReplyKeyboardRemove()
+            "Введи марку заново или нажми кнопку:",
+            reply_markup=brand_keyboard()
         )
 
 @router.message(CarForm.model)
@@ -141,20 +160,24 @@ async def process_fuel(message: Message, state: FSMContext):
     await state.update_data(fuel=fuel, fuel_label=fuel["label"])
     await state.set_state(CarForm.year_from)
     await message.answer(
-        "📅 С какого года искать?\n\nПример: 2010",
+        "📅 С какого года искать?\n\nПример: 2010\nНапиши <b>0</b> если год не важен:",
+        parse_mode="HTML",
         reply_markup=ReplyKeyboardRemove()
     )
 
 @router.message(CarForm.year_from)
 async def process_year_from(message: Message, state: FSMContext):
     text = message.text.strip()
-    if not text.isdigit() or int(text) < 1990 or int(text) > 2025:
-        await message.answer("Введи корректный год, например: 2010")
+    if text == "0":
+        await state.update_data(year_from=1990)
+    elif not text.isdigit() or int(text) < 1990 or int(text) > 2025:
+        await message.answer("Введи корректный год, например: 2010 или 0:")
         return
-    await state.update_data(year_from=int(text))
+    else:
+        await state.update_data(year_from=int(text))
     await state.set_state(CarForm.max_km)
     await message.answer(
-        "🛣 Максимальный пробег (км)?\n\nПример: 150000\nЕсли без ограничения — напиши <b>0</b>",
+        "🛣 Максимальный пробег (км)?\n\nПример: 150000\nНапиши <b>0</b> если без ограничения:",
         parse_mode="HTML"
     )
 
@@ -164,7 +187,7 @@ async def process_max_km(message: Message, state: FSMContext):
     if text == "0":
         await state.update_data(max_km=999999)
     elif not text.isdigit():
-        await message.answer("Введи число, например: 150000")
+        await message.answer("Введи число, например: 150000 или 0:")
         return
     else:
         await state.update_data(max_km=int(text))
@@ -200,12 +223,12 @@ async def process_platforms(message: Message, state: FSMContext):
 
     meta = json.dumps({
         "type": "car",
-        "brand": data["brand"],
+        "brand": data.get("brand", ""),
         "model": data.get("model", ""),
         "fuel_wallapop": fuel.get("wallapop", ""),
         "fuel_coches": fuel.get("coches", ""),
         "fuel_label": fuel.get("label", "Любой тип"),
-        "year_from": data.get("year_from", 2000),
+        "year_from": data.get("year_from", 1990),
         "max_km": data.get("max_km", 999999),
     })
 
@@ -224,16 +247,19 @@ async def process_platforms(message: Message, state: FSMContext):
         )
 
     await state.clear()
+    brand_text = data.get("brand") or "Любая"
     model_text = data.get("model") or "Любая"
     max_km = data.get("max_km", 999999)
     km_text = f"{max_km:,} км".replace(",", " ") if max_km < 999999 else "Без ограничения"
+    year = data.get("year_from", 1990)
+    year_text = str(year) if year > 1990 else "Любой"
 
     await message.answer(
         f"✅ Поиск авто создан!\n\n"
-        f"🚗 Марка: {data['brand']}\n"
+        f"🚗 Марка: {brand_text}\n"
         f"📋 Модель: {model_text}\n"
         f"⛽ Топливо: {fuel.get('label', 'Любой тип')}\n"
-        f"📅 Год от: {data.get('year_from')}\n"
+        f"📅 Год от: {year_text}\n"
         f"🛣 Пробег до: {km_text}\n"
         f"💰 Цена: {data['price_min']} — {data['price_max']} €\n"
         f"🌐 {text}\n\n"
