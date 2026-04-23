@@ -1,3 +1,4 @@
+import json
 from aiogram import Router, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.filters import Command
@@ -51,11 +52,11 @@ def platforms_keyboard():
     )
 
 FUEL_MAP = {
-    "🔋 Гибрид": {"wallapop": "hybride", "coches": "hibrido"},
-    "⚡ Электро": {"wallapop": "electric", "coches": "electrico"},
-    "⛽ Бензин": {"wallapop": "gasoline", "coches": "gasolina"},
-    "🛢 Дизель": {"wallapop": "diesel", "coches": "diesel"},
-    "🔀 Любой тип": {"wallapop": "", "coches": ""},
+    "🔋 Гибрид": {"wallapop": "hybride", "coches": "hibrido", "label": "Гибрид"},
+    "⚡ Электро": {"wallapop": "electric", "coches": "electrico", "label": "Электро"},
+    "⛽ Бензин": {"wallapop": "gasoline", "coches": "gasolina", "label": "Бензин"},
+    "🛢 Дизель": {"wallapop": "diesel", "coches": "diesel", "label": "Дизель"},
+    "🔀 Любой тип": {"wallapop": "", "coches": "", "label": "Любой тип"},
 }
 
 PLATFORM_MAP = {
@@ -66,8 +67,12 @@ PLATFORM_MAP = {
 
 @router.message(Command("car"))
 async def cmd_car(message: Message, state: FSMContext):
+    await state.clear()
     await state.set_state(CarForm.brand)
-    await message.answer("🚗 Какую марку автомобиля ищешь?\n\nПример: Toyota, BMW, Ford")
+    await message.answer(
+        "🚗 Какую марку автомобиля ищешь?\n\nПример: Toyota, BMW, Ford",
+        reply_markup=ReplyKeyboardRemove()
+    )
 
 @router.message(CarForm.brand)
 async def process_brand(message: Message, state: FSMContext):
@@ -132,8 +137,8 @@ async def process_model(message: Message, state: FSMContext):
 
 @router.message(CarForm.fuel)
 async def process_fuel(message: Message, state: FSMContext):
-    fuel = FUEL_MAP.get(message.text.strip(), {"wallapop": "", "coches": ""})
-    await state.update_data(fuel=fuel, fuel_label=message.text.strip())
+    fuel = FUEL_MAP.get(message.text.strip(), {"wallapop": "", "coches": "", "label": "Любой тип"})
+    await state.update_data(fuel=fuel, fuel_label=fuel["label"])
     await state.set_state(CarForm.year_from)
     await message.answer(
         "📅 С какого года искать?\n\nПример: 2010",
@@ -191,21 +196,15 @@ async def process_platforms(message: Message, state: FSMContext):
     text = message.text.strip()
     platforms = PLATFORM_MAP.get(text, "coches,wallapop")
     data = await state.get_data()
+    fuel = data.get("fuel", {"wallapop": "", "coches": "", "label": "Любой тип"})
 
-    fuel = data.get("fuel", {"wallapop": "", "coches": ""})
-    keyword = f"{data['brand']}"
-    if data.get("model"):
-        keyword += f" {data['model']}"
-    if fuel.get("coches"):
-        keyword += f" {fuel['coches']}"
-
-    import json
     meta = json.dumps({
         "type": "car",
         "brand": data["brand"],
         "model": data.get("model", ""),
         "fuel_wallapop": fuel.get("wallapop", ""),
         "fuel_coches": fuel.get("coches", ""),
+        "fuel_label": fuel.get("label", "Любой тип"),
         "year_from": data.get("year_from", 2000),
         "max_km": data.get("max_km", 999999),
     })
@@ -226,15 +225,14 @@ async def process_platforms(message: Message, state: FSMContext):
 
     await state.clear()
     model_text = data.get("model") or "Любая"
-    fuel_label = data.get("fuel_label", "Любой тип")
     max_km = data.get("max_km", 999999)
-    km_text = f"{max_km:,} км" if max_km < 999999 else "Без ограничения"
+    km_text = f"{max_km:,} км".replace(",", " ") if max_km < 999999 else "Без ограничения"
 
     await message.answer(
         f"✅ Поиск авто создан!\n\n"
         f"🚗 Марка: {data['brand']}\n"
         f"📋 Модель: {model_text}\n"
-        f"⛽ Топливо: {fuel_label}\n"
+        f"⛽ Топливо: {fuel.get('label', 'Любой тип')}\n"
         f"📅 Год от: {data.get('year_from')}\n"
         f"🛣 Пробег до: {km_text}\n"
         f"💰 Цена: {data['price_min']} — {data['price_max']} €\n"

@@ -1,9 +1,9 @@
 import json
 from aiogram import Router, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
-from aiogram.filters import Command
+from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
+from aiogram.fsm.state import State, StatesGroup, default_state
 from db.database import get_pool
 
 router = Router()
@@ -57,21 +57,77 @@ def format_search(row):
         f"🌐 {row['platforms']}"
     )
 
+@router.message(Command("cancel"), StateFilter("*"))
+async def cmd_cancel(message: Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Отменено.", reply_markup=ReplyKeyboardRemove())
+
 @router.message(Command("start"))
-async def cmd_start(message: Message):
+async def cmd_start(message: Message, state: FSMContext):
+    await state.clear()
     await message.answer(
         "👋 Привет! Я ищу объявления на Milanuncios, Wallapop и Coches.net\n\n"
         "📌 Команды:\n"
         "/search — поиск товаров\n"
         "/car — поиск автомобилей\n"
         "/list — мои активные поиски\n"
-        "/stop — остановить поиск"
+        "/stop — остановить поиск\n"
+        "/cancel — отменить текущее действие",
+        reply_markup=ReplyKeyboardRemove()
     )
 
 @router.message(Command("search"))
 async def cmd_search(message: Message, state: FSMContext):
+    await state.clear()
     await state.set_state(SearchForm.keyword)
     await message.answer("🔍 Введи ключевое слово для поиска:")
+
+@router.message(Command("list"))
+async def cmd_list(message: Message, state: FSMContext):
+    await state.clear()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT * FROM searches WHERE user_id=$1 AND active=TRUE",
+            message.from_user.id
+        )
+
+    if not rows:
+        await message.answer("У тебя нет активных поисков. /search — создать новый.")
+        return
+
+    text = "📋 Твои активные поиски:\n\n"
+    for row in rows:
+        text += f"🆔 ID: {row['id']}\n"
+        text += format_search(row)
+        text += "\n\n"
+    text += "Чтобы остановить поиск: /stop"
+    await message.answer(text)
+
+@router.message(Command("stop"))
+async def cmd_stop(message: Message, state: FSMContext):
+    await state.clear()
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, keyword FROM searches WHERE user_id=$1 AND active=TRUE",
+            message.from_user.id
+        )
+
+    if not rows:
+        await message.answer("Нет активных поисков.")
+        return
+
+    text = "Какой поиск остановить? Напиши ID:\n\n"
+    for row in rows:
+        try:
+            meta = json.loads(row["keyword"])
+            label = f"🚗 {meta.get('brand', '')} {meta.get('model', '')}"
+        except Exception:
+            label = row["keyword"]
+        text += f"🆔 {row['id']} — {label}\n"
+    await state.set_state(StopForm.search_id)
+    await message.answer(text)
 
 @router.message(SearchForm.keyword)
 async def process_keyword(message: Message, state: FSMContext):
@@ -161,51 +217,6 @@ async def process_platforms(message: Message, state: FSMContext):
             f"🌐 Выбрано: {', '.join(names) if names else 'ничего'}\n\nНажми 🚀 Готово когда закончишь.",
             reply_markup=platforms_keyboard()
         )
-
-@router.message(Command("list"))
-async def cmd_list(message: Message):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT * FROM searches WHERE user_id=$1 AND active=TRUE",
-            message.from_user.id
-        )
-
-    if not rows:
-        await message.answer("У тебя нет активных поисков. /search — создать новый.")
-        return
-
-    text = "📋 Твои активные поиски:\n\n"
-    for row in rows:
-        text += f"🆔 ID: {row['id']}\n"
-        text += format_search(row)
-        text += "\n\n"
-    text += "Чтобы остановить поиск: /stop"
-    await message.answer(text)
-
-@router.message(Command("stop"))
-async def cmd_stop(message: Message, state: FSMContext):
-    pool = await get_pool()
-    async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            "SELECT id, keyword FROM searches WHERE user_id=$1 AND active=TRUE",
-            message.from_user.id
-        )
-
-    if not rows:
-        await message.answer("Нет активных поисков.")
-        return
-
-    text = "Какой поиск остановить? Напиши ID:\n\n"
-    for row in rows:
-        try:
-            meta = json.loads(row["keyword"])
-            label = f"🚗 {meta.get('brand', '')} {meta.get('model', '')}"
-        except Exception:
-            label = row["keyword"]
-        text += f"🆔 {row['id']} — {label}\n"
-    await state.set_state(StopForm.search_id)
-    await message.answer(text)
 
 @router.message(StopForm.search_id)
 async def process_stop_id(message: Message, state: FSMContext):
