@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 from typing import List
 from db.models import Listing, Search
 from scrapers.base import BaseScraper
+from antidetect.stealth import BROWSER_ARGS
 import urllib.parse
 import json
 
@@ -29,7 +30,7 @@ class WallapopScraper(BaseScraper):
             "order_by": "newest",
             "min_sale_price": search.price_min,
             "max_sale_price": search.price_max,
-            "min_year": meta.get("year_from", 2000),
+            "min_year": meta.get("year_from", 1990),
         }
         if meta.get("brand"):
             params["brand"] = meta["brand"]
@@ -56,7 +57,7 @@ class WallapopScraper(BaseScraper):
 
     async def _scrape(self, url: str) -> List[Listing]:
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(headless=True, args=BROWSER_ARGS)
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 locale="es-ES",

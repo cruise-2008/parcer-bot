@@ -4,6 +4,7 @@ from typing import List
 from db.models import Listing, Search
 from scrapers.base import BaseScraper
 from bot.car_makes import COCHES_MAKES, COCHES_FUEL
+from antidetect.stealth import BROWSER_ARGS
 import urllib.parse
 import unicodedata
 import re
@@ -30,6 +31,10 @@ class CochesScraper(BaseScraper):
             fuel_coches = meta.get("fuel_coches", "")
             year_from = meta.get("year_from", 0)
 
+            if not brand_name:
+                print(f"Coches: марка не указана — пропускаем")
+                return []
+
             make_id = COCHES_MAKES.get(brand_name)
             if not make_id:
                 for name, code in COCHES_MAKES.items():
@@ -46,7 +51,7 @@ class CochesScraper(BaseScraper):
                 fuel_id = COCHES_FUEL.get(fuel_coches)
                 if fuel_id:
                     params["Fueltype2List"] = fuel_id
-            if year_from:
+            if year_from and year_from > 1990:
                 params["MinYear"] = year_from
 
         else:
@@ -82,7 +87,7 @@ class CochesScraper(BaseScraper):
         print(f"Coches URL: {url}")
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(headless=True, args=BROWSER_ARGS)
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 locale="es-ES",

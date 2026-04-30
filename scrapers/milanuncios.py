@@ -3,6 +3,7 @@ from bs4 import BeautifulSoup
 from typing import List
 from db.models import Listing, Search
 from scrapers.base import BaseScraper
+from antidetect.stealth import BROWSER_ARGS
 import urllib.parse
 
 class MilanunciosScraper(BaseScraper):
@@ -22,7 +23,7 @@ class MilanunciosScraper(BaseScraper):
         url = self.BASE_URL + "?" + urllib.parse.urlencode(params)
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(headless=True)
+            browser = await p.chromium.launch(headless=True, args=BROWSER_ARGS)
             context = await browser.new_context(
                 user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
                 locale="es-ES",
@@ -42,12 +43,6 @@ class MilanunciosScraper(BaseScraper):
             try:
                 link_el = item.select_one("a.ma-AdCardV2-link")
                 href = link_el.get("href", "") if link_el else ""
-
-                if not href:
-                    data_href = item.get("data-href", "")
-                    if data_href:
-                        href = data_href
-
                 if not href:
                     links = item.select("a[href]")
                     for l in links:
@@ -56,20 +51,10 @@ class MilanunciosScraper(BaseScraper):
                             href = h
                             break
 
-                title_el = item.select_one("[class*='AdCardV2-title']")
-                if not title_el:
-                    title_el = item.select_one("h2")
-                if not title_el:
-                    title_el = item.select_one("[class*='title']")
-
-                price_el = item.select_one("[class*='Price']")
-                if not price_el:
-                    price_el = item.select_one("[class*='price']")
-
+                title_el = item.select_one("[class*='AdCardV2-title']") or item.select_one("h2") or item.select_one("[class*='title']")
+                price_el = item.select_one("[class*='Price']") or item.select_one("[class*='price']")
                 image_el = item.select_one("img")
-                location_el = item.select_one("[class*='location']")
-                if not location_el:
-                    location_el = item.select_one("[class*='Location']")
+                location_el = item.select_one("[class*='location']") or item.select_one("[class*='Location']")
 
                 title = title_el.text.strip() if title_el else ""
                 price_text = price_el.text.strip().replace(".", "").replace("€", "").replace(",", "").strip() if price_el else None
@@ -78,8 +63,6 @@ class MilanunciosScraper(BaseScraper):
                 external_id = href.strip("/").split("/")[-1].replace(".htm", "") if href else ""
                 image_url = image_el.get("src") or image_el.get("data-src") if image_el else None
                 location = location_el.text.strip() if location_el else ""
-
-                print(f"Milanuncios item: title={title} href={href} price={price}")
 
                 if not title or not external_id:
                     continue

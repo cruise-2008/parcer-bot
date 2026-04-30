@@ -13,3 +13,12 @@ def get_headers():
 
 async def random_delay():
     await asyncio.sleep(random.uniform(1.5, 4.0))
+
+BROWSER_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--no-zygote",
+    "--single-process",
+]
