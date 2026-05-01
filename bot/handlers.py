@@ -3,7 +3,7 @@ from aiogram import Router, F
 from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 from aiogram.filters import Command, StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup, default_state
+from aiogram.fsm.state import State, StatesGroup
 from db.database import get_pool
 
 router = Router()
@@ -14,6 +14,7 @@ class SearchForm(StatesGroup):
     price_max = State()
     location = State()
     platforms = State()
+    interval = State()
 
 class StopForm(StatesGroup):
     search_id = State()
@@ -29,10 +30,25 @@ def platforms_keyboard():
         one_time_keyboard=False
     )
 
+def interval_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="⏱ 1 час"), KeyboardButton(text="⏱ 3 часа"), KeyboardButton(text="⏱ 6 часов")],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
 PLATFORM_KEYS = {
     "✅ Wallapop": "wallapop",
     "✅ Milanuncios": "milanuncios",
     "✅ Coches.net": "coches",
+}
+
+INTERVAL_MAP = {
+    "⏱ 1 час": 60,
+    "⏱ 3 часа": 180,
+    "⏱ 6 часов": 360,
 }
 
 def format_search(row):
@@ -41,26 +57,25 @@ def format_search(row):
         if meta.get("type") == "car":
             model = meta.get("model") or "любая модель"
             fuel = meta.get("fuel_label", "")
+            interval = row.get("interval_minutes", 60)
             return (
-                f"🚗 {meta['brand']} {model}\n"
+                f"🚗 {meta['brand'] or 'Любая'} {model}\n"
                 f"⛽ {fuel}\n"
                 f"📅 от {meta.get('year_from', '—')} г.\n"
                 f"💰 {row['price_min']} — {row['price_max']} €\n"
+                f"⏱ каждые {interval} мин\n"
                 f"🌐 {row['platforms']}"
             )
     except Exception:
         pass
+    interval = row.get("interval_minutes", 60)
     return (
         f"🔍 {row['keyword']}\n"
         f"💰 {row['price_min']} — {row['price_max']} €\n"
         f"📍 {row['location'] or 'Вся Испания'}\n"
+        f"⏱ каждые {interval} мин\n"
         f"🌐 {row['platforms']}"
     )
-
-@router.message(Command("cancel"), StateFilter("*"))
-async def cmd_cancel(message: Message, state: FSMContext):
-    await state.clear()
-    await message.answer("❌ Отменено.", reply_markup=ReplyKeyboardRemove())
 
 @router.message(Command("start"))
 async def cmd_start(message: Message, state: FSMContext):
@@ -122,7 +137,7 @@ async def cmd_stop(message: Message, state: FSMContext):
     for row in rows:
         try:
             meta = json.loads(row["keyword"])
-            label = f"🚗 {meta.get('brand', '')} {meta.get('model', '')}"
+            label = f"🚗 {meta.get('brand', '') or 'Любая'} {meta.get('model', '')}"
         except Exception:
             label = row["keyword"]
         text += f"🆔 {row['id']} — {label}\n"
@@ -177,31 +192,11 @@ async def process_platforms(message: Message, state: FSMContext):
         if not selected:
             await message.answer("Выбери хотя бы одну площадку!")
             return
-
-        platforms_str = ",".join(selected)
-        pool = await get_pool()
-        async with pool.acquire() as conn:
-            await conn.execute(
-                """INSERT INTO searches (user_id, keyword, price_min, price_max, location, platforms)
-                VALUES ($1, $2, $3, $4, $5, $6)""",
-                message.from_user.id,
-                data["keyword"],
-                data["price_min"],
-                data["price_max"],
-                data["location"],
-                platforms_str
-            )
-
-        await state.clear()
-        names = [k for k, v in PLATFORM_KEYS.items() if v in selected]
+        await state.update_data(selected_platforms=selected)
+        await state.set_state(SearchForm.interval)
         await message.answer(
-            f"✅ Поиск создан!\n\n"
-            f"🔍 {data['keyword']}\n"
-            f"💰 {data['price_min']} — {data['price_max']} €\n"
-            f"📍 {data['location'] or 'Вся Испания'}\n"
-            f"🌐 {', '.join(names)}\n\n"
-            f"Буду присылать новые объявления каждые 10 минут.",
-            reply_markup=ReplyKeyboardRemove()
+            "⏱ Как часто проверять новые объявления?",
+            reply_markup=interval_keyboard()
         )
         return
 
@@ -217,6 +212,39 @@ async def process_platforms(message: Message, state: FSMContext):
             f"🌐 Выбрано: {', '.join(names) if names else 'ничего'}\n\nНажми 🚀 Готово когда закончишь.",
             reply_markup=platforms_keyboard()
         )
+
+@router.message(SearchForm.interval)
+async def process_interval(message: Message, state: FSMContext):
+    text = message.text.strip()
+    interval = INTERVAL_MAP.get(text, 60)
+    data = await state.get_data()
+    platforms_str = ",".join(data["selected_platforms"])
+
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO searches (user_id, keyword, price_min, price_max, location, platforms, interval_minutes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)""",
+            message.from_user.id,
+            data["keyword"],
+            data["price_min"],
+            data["price_max"],
+            data["location"],
+            platforms_str,
+            interval
+        )
+
+    await state.clear()
+    names = [k for k, v in PLATFORM_KEYS.items() if v in data["selected_platforms"]]
+    await message.answer(
+        f"✅ Поиск создан!\n\n"
+        f"🔍 {data['keyword']}\n"
+        f"💰 {data['price_min']} — {data['price_max']} €\n"
+        f"📍 {data['location'] or 'Вся Испания'}\n"
+        f"🌐 {', '.join(names)}\n"
+        f"⏱ {text}",
+        reply_markup=ReplyKeyboardRemove()
+    )
 
 @router.message(StopForm.search_id)
 async def process_stop_id(message: Message, state: FSMContext):

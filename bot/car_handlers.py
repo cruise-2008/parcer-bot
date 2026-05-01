@@ -19,6 +19,7 @@ class CarForm(StatesGroup):
     price_min = State()
     price_max = State()
     platforms = State()
+    interval = State()
 
 def brand_keyboard():
     return ReplyKeyboardMarkup(
@@ -58,6 +59,15 @@ def platforms_keyboard():
         one_time_keyboard=True
     )
 
+def interval_keyboard():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="⏱ 1 час"), KeyboardButton(text="⏱ 3 часа"), KeyboardButton(text="⏱ 6 часов")],
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
 FUEL_MAP = {
     "🔋 Гибрид": {"wallapop": "hybride", "coches": "hibrido", "label": "Гибрид"},
     "⚡ Электро": {"wallapop": "electric", "coches": "electrico", "label": "Электро"},
@@ -70,6 +80,12 @@ PLATFORM_MAP = {
     "🚗 Coches.net": "coches",
     "🛍 Wallapop": "wallapop",
     "🚗 Coches.net + 🛍 Wallapop": "coches,wallapop",
+}
+
+INTERVAL_MAP = {
+    "⏱ 1 час": 60,
+    "⏱ 3 часа": 180,
+    "⏱ 6 часов": 360,
 }
 
 @router.message(Command("car"))
@@ -218,6 +234,17 @@ async def process_price_max(message: Message, state: FSMContext):
 async def process_platforms(message: Message, state: FSMContext):
     text = message.text.strip()
     platforms = PLATFORM_MAP.get(text, "coches,wallapop")
+    await state.update_data(platforms=platforms, platforms_label=text)
+    await state.set_state(CarForm.interval)
+    await message.answer(
+        "⏱ Как часто проверять новые объявления?",
+        reply_markup=interval_keyboard()
+    )
+
+@router.message(CarForm.interval)
+async def process_interval(message: Message, state: FSMContext):
+    text = message.text.strip()
+    interval = INTERVAL_MAP.get(text, 60)
     data = await state.get_data()
     fuel = data.get("fuel", {"wallapop": "", "coches": "", "label": "Любой тип"})
 
@@ -236,14 +263,15 @@ async def process_platforms(message: Message, state: FSMContext):
     async with pool.acquire() as conn:
         await conn.execute(
             """INSERT INTO searches
-            (user_id, keyword, price_min, price_max, location, platforms)
-            VALUES ($1, $2, $3, $4, $5, $6)""",
+            (user_id, keyword, price_min, price_max, location, platforms, interval_minutes)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)""",
             message.from_user.id,
             meta,
             data["price_min"],
             data["price_max"],
             "",
-            platforms
+            data["platforms"],
+            interval
         )
 
     await state.clear()
@@ -262,7 +290,7 @@ async def process_platforms(message: Message, state: FSMContext):
         f"📅 Год от: {year_text}\n"
         f"🛣 Пробег до: {km_text}\n"
         f"💰 Цена: {data['price_min']} — {data['price_max']} €\n"
-        f"🌐 {text}\n\n"
-        f"Буду присылать новые объявления каждые 10 минут.",
+        f"🌐 {data.get('platforms_label', '')}\n"
+        f"⏱ {text}",
         reply_markup=ReplyKeyboardRemove()
     )

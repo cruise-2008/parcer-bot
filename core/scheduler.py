@@ -8,7 +8,6 @@ from scrapers.milanuncios import MilanunciosScraper
 from scrapers.wallapop import WallapopScraper
 from scrapers.coches import CochesScraper
 from notifier.sender import notify
-from config import SEARCH_INTERVAL_MINUTES
 
 SCRAPERS = {
     "wallapop": WallapopScraper(),
@@ -46,7 +45,6 @@ async def process_scraper(bot, search, platform, scraper):
         print(f"📦 Получено: {len(listings)}")
 
         car_search = is_car_search(search)
-
         if car_search or platform in TRUSTED_SCRAPERS:
             filtered = [l for l in listings if price_matches(l, search)]
         else:
@@ -76,45 +74,63 @@ async def process_scraper(bot, search, platform, scraper):
     except Exception as e:
         print(f"❌ Ошибка {platform}: {e}")
 
-async def run_searches(bot: Bot):
-    print("🔄 Запуск поиска...")
+async def run_search_by_id(bot: Bot, search_id: int):
     pool = await get_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM searches WHERE active = TRUE")
-
-    print(f"📋 Активных поисков: {len(rows)}")
-
-    for row in rows:
-        search = Search(
-            id=row["id"],
-            user_id=row["user_id"],
-            keyword=row["keyword"],
-            price_min=row["price_min"],
-            price_max=row["price_max"],
-            location=row["location"],
-            radius=row["radius"],
-            active=row["active"]
+        row = await conn.fetchrow(
+            "SELECT * FROM searches WHERE id=$1 AND active=TRUE", search_id
         )
+    if not row:
+        return
 
-        platforms = row["platforms"].split(",") if row["platforms"] else ["wallapop", "milanuncios", "coches"]
+    search = Search(
+        id=row["id"],
+        user_id=row["user_id"],
+        keyword=row["keyword"],
+        price_min=row["price_min"],
+        price_max=row["price_max"],
+        location=row["location"],
+        radius=row["radius"],
+        active=row["active"]
+    )
 
-        for platform in platforms:
-            scraper = SCRAPERS.get(platform.strip())
-            if not scraper:
-                continue
+    platforms = row["platforms"].split(",") if row["platforms"] else ["wallapop"]
+    for platform in platforms:
+        scraper = SCRAPERS.get(platform.strip())
+        if scraper:
             await process_scraper(bot, search, platform, scraper)
 
-    print("✅ Цикл поиска завершён")
+async def schedule_all_searches(bot: Bot, scheduler: AsyncIOScheduler):
+    pool = await get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch("SELECT id, interval_minutes FROM searches WHERE active=TRUE")
+
+    for row in rows:
+        job_id = f"search_{row['id']}"
+        interval = row["interval_minutes"] or 60
+        if not scheduler.get_job(job_id):
+            scheduler.add_job(
+                run_search_by_id,
+                "interval",
+                minutes=interval,
+                args=[bot, row["id"]],
+                id=job_id,
+                max_instances=1,
+                coalesce=True
+            )
+            print(f"📅 Запланирован поиск {row['id']} каждые {interval} мин")
+
+    print(f"✅ Всего запланировано: {len(rows)} поисков")
 
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
-        run_searches,
+        schedule_all_searches,
         "interval",
-        minutes=SEARCH_INTERVAL_MINUTES,
-        args=[bot],
-        max_instances=1,
-        coalesce=True
+        minutes=1,
+        args=[bot, scheduler],
+        id="meta_scheduler",
+        max_instances=1
     )
     scheduler.start()
     return scheduler
