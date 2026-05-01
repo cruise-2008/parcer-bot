@@ -64,8 +64,15 @@ class WallapopScraper(BaseScraper):
             )
             page = await context.new_page()
             await page.goto(url, wait_until="networkidle", timeout=30000)
-            await page.wait_for_timeout(4000)
+
+            try:
+                await page.wait_for_selector("a[href*='/item/']", timeout=10000)
+            except Exception:
+                print("Wallapop: элементы не появились")
+
+            await page.wait_for_timeout(3000)
             html = await page.content()
+            print(f"Wallapop HTML length: {len(html)}")
             await browser.close()
 
         soup = BeautifulSoup(html, "html.parser")
