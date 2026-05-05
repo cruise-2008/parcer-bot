@@ -105,6 +105,7 @@ async def schedule_all_searches(bot: Bot, scheduler: AsyncIOScheduler):
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT id, interval_minutes FROM searches WHERE active=TRUE")
 
+    added = 0
     for row in rows:
         job_id = f"search_{row['id']}"
         interval = row["interval_minutes"] or 60
@@ -118,9 +119,10 @@ async def schedule_all_searches(bot: Bot, scheduler: AsyncIOScheduler):
                 max_instances=1,
                 coalesce=True
             )
-            print(f"📅 Запланирован поиск {row['id']} каждые {interval} мин")
+            added += 1
 
-    print(f"✅ Всего запланировано: {len(rows)} поисков")
+    if added > 0:
+        print(f"📅 Добавлено новых поисков: {added}")
 
 def start_scheduler(bot: Bot):
     scheduler = AsyncIOScheduler()
@@ -130,7 +132,8 @@ def start_scheduler(bot: Bot):
         minutes=1,
         args=[bot, scheduler],
         id="meta_scheduler",
-        max_instances=1
+        max_instances=1,
+        coalesce=True
     )
     scheduler.start()
     return scheduler
