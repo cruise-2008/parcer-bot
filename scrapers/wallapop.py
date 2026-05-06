@@ -41,9 +41,9 @@ class WallapopScraper(BaseScraper):
         if meta.get("max_km", 999999) < 999999:
             params["max_km"] = meta["max_km"]
 
-        url = self.CAR_URL + "?" + urllib.parse.urlencode(params)
-        print(f"Wallapop car URL: {url}")
-        return await self._scrape(url)
+        target_url = self.CAR_URL + "?" + urllib.parse.urlencode(params)
+        print(f"Wallapop car URL: {target_url}")
+        return await self._scrape(target_url, warmup=True)
 
     async def _fetch_items(self, search: Search) -> List[Listing]:
         params = {
@@ -53,9 +53,9 @@ class WallapopScraper(BaseScraper):
             "orderBy": "newest",
         }
         url = self.SEARCH_URL + "?" + urllib.parse.urlencode(params)
-        return await self._scrape(url)
+        return await self._scrape(url, warmup=False)
 
-    async def _scrape(self, url: str) -> List[Listing]:
+    async def _scrape(self, url: str, warmup: bool = False) -> List[Listing]:
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True, args=BROWSER_ARGS)
             context = await browser.new_context(
@@ -63,6 +63,11 @@ class WallapopScraper(BaseScraper):
                 locale="es-ES",
             )
             page = await context.new_page()
+
+            if warmup:
+                await page.goto("https://es.wallapop.com", wait_until="domcontentloaded", timeout=15000)
+                await page.wait_for_timeout(2000)
+
             await page.goto(url, wait_until="networkidle", timeout=30000)
 
             try:
