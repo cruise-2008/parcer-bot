@@ -16,6 +16,7 @@ class CarForm(StatesGroup):
     fuel = State()
     year_from = State()
     max_km = State()
+    location = State()
     price_min = State()
     price_max = State()
     platforms = State()
@@ -207,6 +208,21 @@ async def process_max_km(message: Message, state: FSMContext):
         return
     else:
         await state.update_data(max_km=int(text))
+    await state.set_state(CarForm.location)
+    await message.answer(
+        "📍 Город или регион?\n\nПример: Valencia, Madrid\nНапиши <b>0</b> если без ограничения:",
+        parse_mode="HTML"
+    )
+
+@router.message(CarForm.location)
+async def process_location(message: Message, state: FSMContext):
+    location = message.text.strip()
+    if location == "0":
+        location = ""
+        await message.answer("Вся Испания — понял ✅")
+    else:
+        await message.answer(f"📍 {location} ✅")
+    await state.update_data(location=location)
     await state.set_state(CarForm.price_min)
     await message.answer("💰 Минимальная цена (€)?\n\nПример: 2000")
 
@@ -257,6 +273,7 @@ async def process_interval(message: Message, state: FSMContext):
         "fuel_label": fuel.get("label", "Любой тип"),
         "year_from": data.get("year_from", 1990),
         "max_km": data.get("max_km", 999999),
+        "location": data.get("location", ""),
     })
 
     pool = await get_pool()
@@ -269,7 +286,7 @@ async def process_interval(message: Message, state: FSMContext):
             meta,
             data["price_min"],
             data["price_max"],
-            "",
+            data.get("location", ""),
             data["platforms"],
             interval
         )
@@ -281,6 +298,7 @@ async def process_interval(message: Message, state: FSMContext):
     km_text = f"{max_km:,} км".replace(",", " ") if max_km < 999999 else "Без ограничения"
     year = data.get("year_from", 1990)
     year_text = str(year) if year > 1990 else "Любой"
+    location_text = data.get("location") or "Вся Испания"
 
     await message.answer(
         f"✅ Поиск авто создан!\n\n"
@@ -289,6 +307,7 @@ async def process_interval(message: Message, state: FSMContext):
         f"⛽ Топливо: {fuel.get('label', 'Любой тип')}\n"
         f"📅 Год от: {year_text}\n"
         f"🛣 Пробег до: {km_text}\n"
+        f"📍 Локация: {location_text}\n"
         f"💰 Цена: {data['price_min']} — {data['price_max']} €\n"
         f"🌐 {data.get('platforms_label', '')}\n"
         f"⏱ {text}",

@@ -40,6 +40,8 @@ class WallapopScraper(BaseScraper):
             params["engine"] = meta["fuel_wallapop"]
         if meta.get("max_km", 999999) < 999999:
             params["max_km"] = meta["max_km"]
+        if meta.get("location"):
+            params["location"] = meta["location"]
 
         target_url = self.CAR_URL + "?" + urllib.parse.urlencode(params)
         print(f"Wallapop car URL: {target_url}")
@@ -52,6 +54,8 @@ class WallapopScraper(BaseScraper):
             "maxPrice": search.price_max,
             "orderBy": "newest",
         }
+        if search.location:
+            params["location"] = search.location
         url = self.SEARCH_URL + "?" + urllib.parse.urlencode(params)
         return await self._scrape(url, warmup=False)
 
